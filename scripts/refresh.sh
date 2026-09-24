@@ -47,8 +47,13 @@ merge_claude_scoped() {
            window: {usedPercent: .percent, windowMinutes: 10080,
                     resetsAt: (.resets_at | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z"))}}]' 2>/dev/null)
   [ -n "$scoped" ] && [ "$scoped" != "[]" ] || return 0
+  # CodexBar's claude.ai API source already reports some of these as
+  # "<Model> only"; skip any title it has, so a window never shows twice.
   "$JQ" --argjson s "$scoped" 'map(if .provider=="claude" and .error==null
-      then .usage.extraRateWindows = ((.usage.extraRateWindows // []) + $s) else . end)' \
+      then (.usage.extraRateWindows // []) as $have
+        | ([$have[].title | sub(" only$"; "")]) as $titles
+        | .usage.extraRateWindows = ($have + [$s[] | select(.title as $t | $titles | index($t) | not)])
+      else . end)' \
     "$TMP" >"$TMP.m" 2>/dev/null && mv "$TMP.m" "$TMP" || rm -f "$TMP.m"
 }
 
