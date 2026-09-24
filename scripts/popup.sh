@@ -118,7 +118,8 @@ render() {
          (.pace.secondary.willLastToReset | tostring)] | @tsv
        else (.usage.secondary | synthp) end),
       (.usage.extraRateWindows[]? |
-        ["W", .title, (.window.usedPercent // 0), (.window.resetsAt // "")] | @tsv),
+        (["W", .title, (.window.usedPercent // 0), (.window.resetsAt // "")] | @tsv),
+        (.window | synthp)),
       (if .usage.codexResetCredits != null then
         ["C", .usage.codexResetCredits.availableCount] | @tsv else empty end)
     end
