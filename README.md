@@ -6,39 +6,42 @@ Press a key, get an instant modal with your Claude and Codex (and any other [Cod
 
 ```
  CLAUDE
-  Session   97% left  ███████████████████░  resets in 4h 45m
-  ▸ On pace · Expected 4% used · Lasts until reset
-  Weekly    66% left  █████████████░░░░░░░  resets in 3d 13h
-  ▸ 15% in reserve · Expected 49% used · Lasts until reset
-  Fable     52% left  ██████████░░░░░░░░░░  resets in 3d 13h
+  Session   97% left  ███████████████████░  resets in 4h 45m (19:40)
+  ▸ 5% of session elapsed · too early to project
+  Weekly    66% left  █████████████░░░░░░░  resets in 3d 13h (Thu 5.11. 18:00)
+  ▸ 49% of week elapsed · 34% used · 15% under pace · lasts until reset
+  Fable     52% left  ██████████░░░░░░░░░░  resets in 3d 13h (Thu 5.11. 18:00)
+  ▸ 49% of week elapsed · 48% used · 1% under pace · lasts until reset
 
  CODEX plus
-  Session   94% left  ██████████████████░░  resets in 4h 45m
-  Weekly    86% left  █████████████████░░░  resets in 2d 19h
-  ▸ 46% in reserve · Expected 60% used · Lasts until reset · 1.5× headroom
+  Session   32% left  ██████░░░░░░░░░░░░░░  resets in 2h 17m (17:09)
+  ▸ 53% of session elapsed · 68% used · 15% over pace · runs out in 2h 23m
+  Weekly    86% left  █████████████████░░░  resets in 2d 19h (Sun 8.11. 12:09)
+  ▸ 60% of week elapsed · 14% used · 46% under pace · lasts until reset
   Reset credits: 2 available
 
  updated 2m ago · r refresh · q quit
 ```
 
-The pace lines are the point: green means you have reserve and the window lasts until reset, yellow means you are ahead of pace, red means you are projected to run out before the reset.
+The pace lines are the point. Each window is a tank that refills at the reset, so the line compares how much of the window is gone with how much of the quota is gone: `84% of week elapsed · 1% used` means the week is almost over and you barely touched it, so you are `83% under pace`. Green means the window lasts until reset, yellow means you are over pace but still fine, red means you are projected to run out before the reset. Under 10% of a window elapsed the line says `too early to project` instead of extrapolating a few minutes into a false alarm.
 
 On narrow clients (a phone SSH session with the keyboard up) the popup switches to a compact layout that fits about 30 columns:
 
 ```
  CLAUDE
  Session  90% ███████░ 0h13m
- ▸ 85% in reserve
+ ▸ 96% of session gone · 86% under pace
  Weekly   64% █████░░░ 3d9h
- ▸ 16% in reserve
+ ▸ 52% of week gone · 16% under pace
  Fable    51% ████░░░░ 3d9h
+ ▸ 52% of week gone · 3% over pace
 ```
 
 ## How it works
 
 Fetching usage takes 20 to 25 seconds (the CodexBar CLI talks to provider APIs), so the popup never fetches in the foreground. A small daemon, started with the tmux server, refreshes a JSON cache every 5 minutes and dies with the server. The popup renders from the cache instantly and shows the cache age in the footer. `r` forces a refresh, and opening the popup on a stale cache kicks a background refresh automatically.
 
-When a provider omits pace data (right after a session reset, for example), the plugin synthesizes it from elapsed window time versus used percent, so the reserve line is always there.
+When a provider omits pace data (right after a session reset, for example), the plugin derives it from elapsed window time versus used percent, so the pace line is always there.
 
 ## Requirements
 
