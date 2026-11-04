@@ -39,6 +39,8 @@ On narrow clients (a phone SSH session with the keyboard up) the popup switches 
 
 ## How it works
 
+Claude is read from the same OAuth endpoints Claude Code uses (token from the `Claude Code-credentials` keychain item), so the popup shows the account Claude Code is logged into, not whichever account the browser is signed in to on claude.ai. If that token or endpoint is unavailable, CodexBar's Claude data is used instead.
+
 Fetching usage takes 20 to 25 seconds (the CodexBar CLI talks to provider APIs), so the popup never fetches in the foreground. A small daemon, started with the tmux server, refreshes a JSON cache every 5 minutes and dies with the server. The popup renders from the cache instantly and shows the cache age in the footer. `r` forces a refresh, and opening the popup on a stale cache kicks a background refresh automatically.
 
 When a provider omits pace data (right after a session reset, for example), the plugin derives it from elapsed window time versus used percent, so the pace line is always there.

@@ -57,9 +57,31 @@ merge_claude_scoped() {
     "$TMP" >"$TMP.m" 2>/dev/null && mv "$TMP.m" "$TMP" || rm -f "$TMP.m"
 }
 
+# Claude straight from the OAuth endpoints Claude Code uses, so the popup always
+# shows the account Claude Code is logged into. CodexBar's Claude "web" source reads
+# claude.ai browser cookies, which can be another account (4. 11. 2026: popup showed
+# the browser account at 1 % while Claude Code's account stood at 46 %). Returns 1
+# when the token or an endpoint is unavailable; then CodexBar's entry stays.
+replace_claude_with_oauth() {
+  "$JQ" -e 'any(.[]; .provider=="claude")' "$TMP" >/dev/null 2>&1 || return 1
+  local token usage profile entry
+  token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
+    | "$JQ" -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+  [ -n "$token" ] || return 1
+  usage=$(curl -sf -m 10 https://api.anthropic.com/api/oauth/usage \
+    -H "Authorization: Bearer $token" -H "anthropic-beta: oauth-2025-04-20") || return 1
+  profile=$(curl -sf -m 10 https://api.anthropic.com/api/oauth/profile \
+    -H "Authorization: Bearer $token" -H "anthropic-beta: oauth-2025-04-20") || profile='{}'
+  entry=$("$JQ" -nc --argjson u "$usage" --argjson p "$profile" \
+    '{usage: $u, profile: $p}' | "$JQ" -c -f "$(dirname "$0")/claude_oauth.jq" 2>/dev/null) || return 1
+  "$JQ" -e '.usage.secondary != null' <<<"$entry" >/dev/null 2>&1 || return 1
+  "$JQ" --argjson e "$entry" 'map(if .provider=="claude" then $e else . end)' \
+    "$TMP" >"$TMP.m" 2>/dev/null && mv "$TMP.m" "$TMP" || { rm -f "$TMP.m"; return 1; }
+}
+
 if "$CODEXBAR" usage --provider "$provider" --format json >"$TMP" 2>>"$LOG" \
    && "$JQ" -e 'type=="array" and length>0' "$TMP" >/dev/null 2>&1; then
-  merge_claude_scoped
+  replace_claude_with_oauth || merge_claude_scoped
   mv "$TMP" "$CACHE"
 else
   rm -f "$TMP"
