@@ -1,8 +1,8 @@
 # tmux-agentic-usage
 
-A tmux popup showing how much of your AI coding quota is left, and whether you are burning it faster than it refills.
+A tmux popup showing how much of your AI coding quota is left, and whether you are burning it faster than it refills. For people who run Claude Code and Codex all day and want to know, at a glance, if the week will last.
 
-Press a key, get an instant modal with your Claude and Codex (and any other [CodexBar](https://github.com/steipete/codexbar) provider) rate limits:
+Press `Alt+Shift+u`, get an instant modal with your Claude and Codex (and any other [CodexBar](https://github.com/steipete/codexbar) provider) rate limits. macOS only, because the data comes from CodexBar.
 
 ```
  CLAUDE Claude Max 20x
@@ -26,6 +26,32 @@ Press a key, get an instant modal with your Claude and Codex (and any other [Cod
 
  updated 2m ago · r refresh · q quit
 ```
+
+## Requirements
+
+- macOS with [CodexBar](https://github.com/steipete/codexbar) installed (the menu bar app ships the `codexbar` CLI)
+- `jq`
+- tmux 3.2 or newer (for `display-popup`)
+
+## Install
+
+With [TPM](https://github.com/tmux-plugins/tpm):
+
+```tmux
+set -g @plugin 'i-mage/tmux-agentic-usage'
+```
+
+Press `prefix + I` to install. Then hit `Alt+Shift+u`.
+
+Manual install:
+
+```sh
+git clone https://github.com/i-mage/tmux-agentic-usage ~/.tmux/plugins/tmux-agentic-usage
+echo "run-shell ~/.tmux/plugins/tmux-agentic-usage/agentic-usage.tmux" >> ~/.tmux.conf
+tmux source-file ~/.tmux.conf
+```
+
+## Reading it
 
 The pace lines are the point. Under each bar one line says how far the use is from an even pace at this second: an even pace allows the quota times the elapsed share of the window, so `2.1% over pace` means 2.1 % more is used than that, `7.5% reserve` means 7.5 % less. Red is more than 3 % over pace, yellow within 3 % either way, green more than 3 % in reserve. It works from the first minute of a window.
 
@@ -67,7 +93,7 @@ An account is picked up the first time Claude Code is logged into it while tmux 
 
 ```
  CLAUDE POOL 2 accounts
-  Weekly   147% left  ██████████████░░░░░░  of 200%
+  Weekly   147% left  ██████████████████████░░░░░░░░  of 200%
   ▸ 2.1% over pace
 
  CLAUDE Claude Max 20x you@work.io ●
@@ -83,30 +109,6 @@ An account is picked up the first time Claude Code is logged into it while tmux 
 Fetching usage takes 20 to 25 seconds (the CodexBar CLI talks to provider APIs), so the popup never fetches in the foreground. A small daemon, started with the tmux server, refreshes a JSON cache every 5 minutes and dies with the server. The popup renders from the cache instantly and shows the cache age in the footer. `r` forces a refresh, and opening the popup on a stale cache kicks a background refresh automatically.
 
 When a provider omits pace data (right after a session reset, for example), the plugin derives it from elapsed window time versus used percent, so the pace line is always there.
-
-## Requirements
-
-- macOS with [CodexBar](https://github.com/steipete/codexbar) installed (the menu bar app ships the `codexbar` CLI)
-- `jq`
-- tmux 3.2 or newer (for `display-popup`)
-
-## Install
-
-With [TPM](https://github.com/tmux-plugins/tpm):
-
-```tmux
-set -g @plugin 'i-mage/tmux-agentic-usage'
-```
-
-Press `prefix + I` to install. Then hit `Alt+Shift+u`.
-
-Manual install:
-
-```sh
-git clone https://github.com/i-mage/tmux-agentic-usage ~/.tmux/plugins/tmux-agentic-usage
-echo "run-shell ~/.tmux/plugins/tmux-agentic-usage/agentic-usage.tmux" >> ~/.tmux.conf
-tmux source-file ~/.tmux.conf
-```
 
 ## Options
 
@@ -126,6 +128,14 @@ set -g @agentic-usage-providers 'both' # passed to `codexbar usage --provider`
 |-----|--------|
 | `r` | Force refresh (blocks ~25s) |
 | `q` / `Esc` | Close |
+
+## Tests
+
+```sh
+for t in tests/test_*.sh; do bash "$t"; done
+```
+
+Each suite prints `ok` or the failing check with what it got and what it wanted. They need `jq` only, no tmux and no CodexBar.
 
 ## Credits
 
