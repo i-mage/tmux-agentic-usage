@@ -110,6 +110,16 @@ Fetching usage takes 20 to 25 seconds (the CodexBar CLI talks to provider APIs),
 
 When a provider omits pace data (right after a session reset, for example), the plugin derives it from elapsed window time versus used percent, so the pace line is always there.
 
+## Status line
+
+`scripts/status.sh` prints one tmux segment from the cache: how far the Claude week is from an even pace, only when it is more than 3 % off. `+9%` in green means 9 % in reserve, `-10%` in red means 10 % over pace; on pace it prints nothing. The week is the pool's Weekly with two or more accounts, otherwise the account's own Weekly. It reads the cache only, so it costs a few milliseconds per status refresh.
+
+```tmux
+set -g status-right '#(bash ~/.tmux/plugins/tmux-agentic-usage/scripts/status.sh)%H:%M'
+```
+
+`AGENTIC_USAGE_STATUS_THRESHOLD` changes the 3 % threshold.
+
 ## Options
 
 Set in `.tmux.conf` before the plugin line:
