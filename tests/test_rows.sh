@@ -80,18 +80,16 @@ expect 'different resets stay per row' "$(rows "[$A4]" | grep -c '^R')" '0'
 
 # Away Sat 28.11. 11:00Z to Sun 29.11. 13:00Z (26 h) is not working time: A's week
 # has 168 - 26 = 142 working hours, 19 h gone = 13.38 %, 14 % used -> 0.6 % over
-# pace (2.7 % without the away). By the away start (114 working hours, 80.28 %)
-# 66.3 % more can go; the A row names the period.
+# pace (2.7 % without the away); the A row names the period.
 AWAY='[[1795863600,1795957200]]'
 rows_away() { "$JQ" -r --argjson now "$NOW" --argjson away "$AWAY" -f scripts/rows.jq <<<"$1"; }
 OUT=$(rows_away "[$A]")
 expect 'away row' "$(grep '^A' <<<"$OUT")" "$(printf 'A\t1795863600\t1795957200')"
-expect 'away weekly pace' "$(grep -A1 $'^W\tWeekly' <<<"$OUT" | tail -1)" "$(printf 'P\t0.6\t66.3\t1795863600')"
-# Pool: both accounts' allowance by the away start summed, minus the summed use.
+expect 'away weekly pace' "$(grep -A1 $'^W\tWeekly' <<<"$OUT" | tail -1)" "$(printf 'P\t0.6')"
+# Pool: B's week (Mon 10:00Z, 26 h gone of 142 = 18.31 %) plus A's 13.38 % = 31.69 %
+# allowed, 20 % used -> 11.7 % reserve.
 OUT=$(rows_away "[$A,$B]")
-expect 'away pool pace' "$(P Q Weekly | cut -f1,3,4)" "$(printf 'P\t145.5\t1795863600')"
-# The session ends before the away starts: no spend-by part.
-expect 'away session' "$(grep -A1 $'^W\tSession' <<<"$OUT" | tail -1 | cut -f3)" ''
+expect 'away pool pace' "$(P Q Weekly)" "$(printf 'P\t-11.7')"
 
 # Codex and errors still render.
 OUT=$(rows '[{"provider":"codex","error":null,"usage":{"identity":{"loginMethod":"plus"},

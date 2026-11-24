@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Render the usage popup from the cache written by refresh.sh.
 # Keys: r = force refresh, q / Esc = close.
-# Under 70 columns (phone-sized clients) a compact layout is used.
+# Under 50 columns (phone-sized clients) a compact layout is used. The bars take
+# whatever width the popup has (24. 11. 2026, owner).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_DIR="$HOME/.cache/tmux-agentic-usage"
@@ -17,11 +18,12 @@ if [ "${1:-}" = "open" ]; then
   ch=$(tmux display -p '#{client_height}')
   # Height follows the content (accounts come and go): body lines, the line the
   # cursor waits on, and the two border rows.
-  # Width follows the content too: the widest line plus the borders and a margin.
+  # Width: the widest text line (bars measured at 20) plus borders and a margin,
+  # at least 64 columns; the bars then stretch to fill it.
   read -r rows cols <<<"$(bash "$0" count 2>/dev/null)"
   [[ "$rows" =~ ^[0-9]+$ ]] || rows=22
-  [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
-  pw=$(( cols + 4 )); ph=$(( rows + 3 ))
+  [[ "$cols" =~ ^[0-9]+$ ]] || cols=60
+  pw=$(( cols + 4 )); (( pw < 64 )) && pw=64; ph=$(( rows + 3 ))
   [ "$cw" -le $(( pw + 2 )) ] 2>/dev/null && pw='100%'
   [ "$ch" -le $(( ph + 2 )) ] 2>/dev/null && ph='100%'
   exec tmux display-popup -E -w "$pw" -h "$ph" -T ' Agentic usage ' "bash $0"
@@ -36,8 +38,6 @@ iso_epoch() { # BSD date first, GNU date as fallback
     || date -d "$1" +%s 2>/dev/null
 }
 
-# "2026-09-04T12:50:00Z" -> relative time, local clock.
-# Wide: "in 4h 55m" / "in 3d 13h" — compact: "4h55m" / "3d13h"
 fmt_secs() { # seconds -> "4h 55m" / "3d 13h" (compact: "4h55m" / "3d13h")
   local diff=$1
   if (( MOBILE )); then
@@ -49,18 +49,13 @@ fmt_secs() { # seconds -> "4h 55m" / "3d 13h" (compact: "4h55m" / "3d13h")
   fi
 }
 
-rel_until() {
-  local epoch now diff
+# "2026-09-04T12:50:00Z" -> when it resets, local clock: "Mon 23:00" (a week or
+# more ahead: "Mon 7.12. 23:00"). The moment, never a countdown (24. 11. 2026, owner).
+reset_at() {
+  local epoch
   epoch=$(iso_epoch "$1") || { echo "?"; return; }
-  now=$(date +%s); diff=$(( epoch - now ))
-  if (( diff <= 0 )); then echo "now"; return; fi
-  if (( MOBILE )); then fmt_secs "$diff"; return; fi
-  # Wide: relative plus the exact local clock time, day prefix past midnight.
-  local fmt="%H:%M"
-  (( diff >= 86400 )) && fmt="%a %-d.%-m. %H:%M"
-  local at
-  at=$(date -r "$epoch" "+$fmt" 2>/dev/null || date -d "@$epoch" "+$fmt" 2>/dev/null)
-  echo "in $(fmt_secs "$diff") ($at)"
+  (( epoch <= $(date +%s) )) && { echo "now"; return; }
+  at_local $(( epoch + 30 ))  # stamps like 17:59:59 read as 18:00
 }
 
 # Away periods from $AWAY_FILE, one per line: "YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM"
@@ -81,15 +76,14 @@ away_json() {
   printf '[%s]' "$out"
 }
 
-at_local() { # epoch -> "Sat 12:00" (more than a week away: "Sat 5.12. 12:00")
+at_local() { # epoch -> "Sat 12:00" (a week or more away: "Sat 5.12. 12:00")
   local fmt="%a %H:%M"
-  (( $1 - $(date +%s) >= 6 * 86400 )) && fmt="%a %-d.%-m. %H:%M"
+  (( $1 - $(date +%s) >= 7 * 86400 )) && fmt="%a %-d.%-m. %H:%M"
   date -r "$1" "+$fmt" 2>/dev/null || date -d "@$1" "+$fmt" 2>/dev/null
 }
 
-draw_bar() { # $1 = percent left -> colored bar
-  local left=$1 width filled i out="" color
-  if (( MOBILE )); then width=8; else width=20; fi
+draw_bar() { # $1 = percent left -> colored bar, BARW wide
+  local left=$1 width=$BARW filled i out="" color
   (( filled = left * width / 100 ))
   if   (( left >= 40 )); then color=$GREEN
   elif (( left >= 15 )); then color=$YELLOW
@@ -103,36 +97,42 @@ draw_bar() { # $1 = percent left -> colored bar
 
 # Pace line: only how far the use is from an even pace by now. Red more than 3 %
 # over pace, yellow within 3 % either way, green more than 3 % in reserve. With an
-# away period ahead, also how much more can go before it starts.
-#   $1 = diff% (+ over pace, - reserve), $2 = spendable %, $3 = away start epoch
+# away period ahead the even pace counts only the working time.
+#   $1 = diff% (+ over pace, - reserve)
 pace_line() {
-  local d=$1 abs=${1#-} color text spend=""
+  local d=$1 abs=${1#-} color text
   if awk -v d="$d" 'BEGIN { exit !(d > 3) }'; then color=$RED
   elif awk -v d="$d" 'BEGIN { exit !(d < -3) }'; then color=$GREEN
   else color=$YELLOW; fi
   if [ "$d" = "0" ]; then text="on pace"
   elif [ "${d#-}" != "$d" ]; then text="${abs}% reserve"
   else text="${d}% over pace"; fi
-  if [ -n "${3:-}" ]; then
-    if (( MOBILE )); then spend=" ${DIM}· ${2}% to $(at_local "$3")${RST}"
-    else spend=" ${DIM}· ${2}% to spend by $(at_local "$3")${RST}"; fi
-  fi
-  if (( MOBILE )); then printf ' %s▸ %s%s%s\n' "$color" "$text" "$RST" "$spend"
-  else printf '  %s▸ %s%s%s\n' "$color" "$text" "$RST" "$spend"; fi
+  if (( MOBILE )); then printf ' %s▸ %s%s\n' "$color" "$text" "$RST"
+  else printf '  %s▸ %s%s\n' "$color" "$text" "$RST"; fi
 }
 
 render() {
   clear
+  local cols rows_out
+  cols=$(tput cols)
   MOBILE=0
-  (( $(tput cols) < 70 )) && MOBILE=1
+  (( cols < 50 )) && MOBILE=1
 
   if [ ! -f "$CACHE" ]; then
     printf '\n  No cache yet. Press %sr%s to fetch (~25s).\n' "$BOLD" "$RST"
     return
   fi
 
-  "$JQ" -r --argjson now "$(date +%s)" --argjson away "$(away_json)" \
-    -f "$SCRIPT_DIR/rows.jq" "$CACHE" | while IFS=$'\t' read -r kind a b c d e f; do
+  rows_out=$("$JQ" -r --argjson now "$(date +%s)" --argjson away "$(away_json)" \
+    -f "$SCRIPT_DIR/rows.jq" "$CACHE")
+  # Bars fill the line: what the label and the percent leave, minus room for the
+  # pool's "of 200%" (wide) or "/200%" (compact) after the bar.
+  if (( MOBILE )); then BARW=$(( cols - 14 - 7 ))
+  elif grep -q $'^Q' <<<"$rows_out"; then BARW=$(( cols - 22 - 10 ))
+  else BARW=$(( cols - 22 - 1 )); fi
+  [ -n "${COUNT_BARW:-}" ] && BARW=$COUNT_BARW
+  (( BARW < 8 )) && BARW=8
+  while IFS=$'\t' read -r kind a b c d e f; do
     case "$kind" in
       A)
         # a, b = away start and end: the pace below plans around it.
@@ -140,8 +140,8 @@ render() {
         ;;
       R)
         # a = the reset this account's week windows share, said once.
-        if (( MOBILE )); then printf ' %sresets %s%s\n' "$DIM" "$(rel_until "$a")" "$RST"
-        else printf '  %sresets %s%s\n' "$DIM" "$(rel_until "$a")" "$RST"; fi
+        if (( MOBILE )); then printf ' %sresets %s%s\n' "$DIM" "$(reset_at "$a")" "$RST"
+        else printf '  %sresets %s%s\n' "$DIM" "$(reset_at "$a")" "$RST"; fi
         ;;
       H)
         # a = provider, b = plan, c = email, d = active | stale:<min> | login:<min>
@@ -174,22 +174,20 @@ render() {
         fi
         ;;
       W)
-        # c = reset, empty when the account's header line already said it.
-        # Wide: the reset goes on its own line under the bar, so the popup stays
-        # narrow (24. 11. 2026, owner); compact keeps it short on the bar line.
+        # c = reset, empty when the account's header line already said it. It goes
+        # on its own line under the bar, so the bar keeps the whole width.
         title=${a/ only/}
         left=$(( 100 - b ))
         if (( MOBILE )); then
-          reset=""
-          [ -n "$c" ] && reset=" ${DIM}$(rel_until "$c")${RST}"
-          printf ' %-7s %s%3d%%%s %s%s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$reset"
+          printf ' %-7s %s%3d%%%s %s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")"
+          [ -n "$c" ] && printf ' %sresets %s%s\n' "$DIM" "$(reset_at "$c")" "$RST"
         else
           printf '  %-8s %s%3d%%%s left  %s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")"
-          [ -n "$c" ] && printf '  %sresets %s%s\n' "$DIM" "$(rel_until "$c")" "$RST"
+          [ -n "$c" ] && printf '  %sresets %s%s\n' "$DIM" "$(reset_at "$c")" "$RST"
         fi
         ;;
       P)
-        pace_line "$a" "$b" "$c"
+        pace_line "$a"
         ;;
       C)
         if (( MOBILE )); then
@@ -202,7 +200,7 @@ render() {
         printf '\n %s%s%s  %s%s%s\n' "$BOLD" "$a" "$RST" "$RED" "$b" "$RST"
         ;;
     esac
-  done
+  done <<<"$rows_out"
 
   local mtime now age
   mtime=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
@@ -224,6 +222,7 @@ render() {
 # sizing it in "open". Columns are taken as wide (the popup is not open yet).
 if [ "${1:-}" = "count" ]; then
   tput() { [ "$1" = cols ] && echo 200 || command tput "$@"; }
+  COUNT_BARW=20
   clear() { :; }
   export LC_ALL=en_US.UTF-8
   render 2>/dev/null | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | {

@@ -6,21 +6,21 @@ Press a key, get an instant modal with your Claude and Codex (and any other [Cod
 
 ```
  CLAUDE Claude Max 20x
-  resets in 3d 13h (Thu 5.11. 18:00)
-  Session   97% left  ███████████████████░
-  resets in 4h 45m (19:40)
+  resets Thu 18:00
+  Session   97% left  █████████████████████████████░
+  resets Mon 19:40
   ▸ 4.2% reserve
-  Weekly    66% left  █████████████░░░░░░░
+  Weekly    66% left  ████████████████████░░░░░░░░░░
   ▸ 4.2% reserve
-  Fable     52% left  ██████████░░░░░░░░░░
+  Fable     52% left  ████████████████░░░░░░░░░░░░░░
   ▸ 4.2% reserve
 
  CODEX plus
-  Session   32% left  ██████░░░░░░░░░░░░░░
-  resets in 2h 17m (17:09)
+  Session   32% left  ██████████░░░░░░░░░░░░░░░░░░░░
+  resets Mon 17:09
   ▸ 4.2% reserve
-  Weekly    86% left  █████████████████░░░
-  resets in 2d 19h (Sun 8.11. 12:09)
+  Weekly    86% left  ██████████████████████████░░░░
+  resets Sun 12:09
   ▸ 4.2% reserve
   Reset credits: 2 available
 
@@ -29,7 +29,7 @@ Press a key, get an instant modal with your Claude and Codex (and any other [Cod
 
 The pace lines are the point. Under each bar one line says how far the use is from an even pace at this second: an even pace allows the quota times the elapsed share of the window, so `2.1% over pace` means 2.1 % more is used than that, `7.5% reserve` means 7.5 % less. Red is more than 3 % over pace, yellow within 3 % either way, green more than 3 % in reserve. It works from the first minute of a window.
 
-A Claude account's week windows (Weekly, Fable) reset together, so the reset is said once under the account's name; every other window (a session, Codex) says its own on a line under its bar. No reset sits next to a bar, and the popup is as wide as its widest line.
+A Claude account's week windows (Weekly, Fable) reset together, so the reset is said once under the account's name; every other window (a session, Codex) says its own on a line under its bar. A reset is the moment it happens (`resets Mon 23:00`, a date only when it is a week or more ahead), never a countdown. The bars take the whole width of the popup, which is at least 64 columns.
 
 ### Away periods
 
@@ -41,23 +41,17 @@ bash scripts/away.sh                                         # list
 bash scripts/away.sh clear                                   # remove all
 ```
 
-The periods live in `~/.config/tmux-agentic-usage/away`, one per line. An even pace is then counted over the working time of the window only: before an away period it allows more, during it nothing more. While one is ahead, the pace line also says how much more can go before it starts, so that what is left covers the working time after it until the reset:
+The periods live in `~/.config/tmux-agentic-usage/away`, one per line. An even pace is then counted over the working time of the window only: before an away period it allows more, during it nothing more. The popup names the period on its first line (`away Sat 12:00 → Sun 14:00`).
+
+On narrow clients (a phone SSH session with the keyboard up) the popup switches to a compact layout under 50 columns:
 
 ```
- away Sat 12:00 → Sun 14:00
-  Weekly    79% left  ███████████████░░░░░
-  ▸ 8% over pace · 59.3% to spend by Sat 12:00
-```
-
-On narrow clients (a phone SSH session with the keyboard up) the popup switches to a compact layout that fits about 30 columns:
-
-```
- CLAUDE
- Session  90% ███████░ 0h13m
+ CLAUDE you
+ resets Thu 18:00
+ Session  90% ███████████████████░░
+ resets Mon 19:40
  ▸ 4.2% reserve
- Weekly   64% █████░░░ 3d9h
- ▸ 4.2% reserve
- Fable    51% ████░░░░ 3d9h
+ Weekly   64% █████████████░░░░░░░
  ▸ 4.2% reserve
 ```
 

@@ -8,9 +8,8 @@
 #                                    said once under its header, empty on its W rows
 #   W  title     used%  resetsAt          one rate window
 #   Q  title     sumUsed%  accounts       a window summed over every Claude account
-#   P  diff%  [spend%  awayStart]    pace of the row above: used minus what an even
-#                                    pace allows by now (+ over pace, - reserve); with
-#                                    an away period ahead, how much more can go before it
+#   P  diff%                         pace of the row above: used minus what an even
+#                                    pace allows by now (+ over pace, - reserve)
 #   A  start  end                    an away period that shapes the pace (epochs)
 #   C  creditsAvailable
 #   E  provider  message
@@ -37,25 +36,14 @@ def workf($u; $t):
   end;
 def elapsedf($u): workf($u; $now);
 
-# The next away period starting before the window resets, or null.
-def next_away($r): [away[] | select(.[0] > $now and .[0] < $r)] | min_by(.[0]) // null;
-
 # Pace to the second (24. 11. 2026, owner): an even pace allows cap x elapsed
 # share of the window by now; the row says how far the use is above (over pace)
 # or below (reserve) that line. No "too early" gate, no daily budget wording.
-# $exp = what an even pace allows by now, $atAway = by the next away start.
-def pace($used; $exp; $atAway; $a):
-  ["P", ($used - $exp | r1)]
-  + (if $a == null or $atAway == null then [] else [([$atAway - $used, 0] | max | r1), $a[0]] end)
-  | @tsv;
+# $exp = what an even pace allows by now.
+def pace($used; $exp): ["P", ($used - $exp | r1)] | @tsv;
 
-def pacerow($u):
-  elapsedf($u) as $el
-  | if $el == null then empty else
-      ($u.resetsAt // "" | try fromdateiso8601 catch null) as $r
-      | next_away($r) as $a
-      | pace($u.usedPercent // 0; $el; (if $a == null then null else workf($u; $a[0]) end); $a)
-    end;
+def pacerow($u): elapsedf($u) as $el | if $el == null then empty
+  else pace($u.usedPercent // 0; $el) end;
 
 def state:
   if .needsLogin == true then "login:\((($now - (.fetchedAt // $now)) / 60) | floor)"
@@ -119,10 +107,8 @@ def pool_rows($acc):
      | length as $n
      | ([.[].w.usedPercent // 0] | add) as $sum
      | ([.[].w | elapsedf(.) // 0] | add) as $exp
-     | next_away([.[].w.resetsAt // "" | try fromdateiso8601 catch 0] | max) as $a
-     | (if $a == null then null else [.[].w | workf(.; $a[0]) // 0] | add end) as $atAway
      | (["Q", .[0].t, $sum, $n] | @tsv),
-       pace($sum; $exp; $atAway; $a))
+       pace($sum; $exp))
   end;
 
 (away[] | select(.[1] > $now - 8 * 86400) | ["A", .[0], .[1]] | @tsv),
