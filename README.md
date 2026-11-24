@@ -7,34 +7,34 @@ Press a key, get an instant modal with your Claude and Codex (and any other [Cod
 ```
  CLAUDE
   Session   97% left  ███████████████████░  resets in 4h 45m (19:40)
-  ▸ 5% of session elapsed · too early to project
+  ▸ 4.2% reserve
   Weekly    66% left  █████████████░░░░░░░  resets in 3d 13h (Thu 5.11. 18:00)
-  ▸ 49% of week elapsed · 34% used · 15% under pace · lasts until reset
+  ▸ 4.2% reserve
   Fable     52% left  ██████████░░░░░░░░░░  resets in 3d 13h (Thu 5.11. 18:00)
-  ▸ 49% of week elapsed · 48% used · 1% under pace · lasts until reset
+  ▸ 4.2% reserve
 
  CODEX plus
   Session   32% left  ██████░░░░░░░░░░░░░░  resets in 2h 17m (17:09)
-  ▸ 53% of session elapsed · 68% used · 15% over pace · runs out in 2h 23m
+  ▸ 4.2% reserve
   Weekly    86% left  █████████████████░░░  resets in 2d 19h (Sun 8.11. 12:09)
-  ▸ 60% of week elapsed · 14% used · 46% under pace · lasts until reset
+  ▸ 4.2% reserve
   Reset credits: 2 available
 
  updated 2m ago · r refresh · q quit
 ```
 
-The pace lines are the point. A week is a daily budget: one Claude subscription gives 100% per 7 days, so 14.3% a day; two give 28.6% a day. The line says which day of the window you are on, what you actually spent per elapsed day and what you may spend, and when that pace runs the quota out: `day 0.6 of 7 · 32%/day, budget 28.6%/day · runs out Mon 30.11. 02:43`. Green means under budget, yellow over budget but still lasting until the reset, red means it runs out first. It projects from the first hour of the window. Windows shorter than a day (the 5-hour session) keep the percent form: `53% of session elapsed · 68% used · 15% over pace · runs out in 2h 23m`.
+The pace lines are the point. Under each bar one line says how far the use is from an even pace at this second: an even pace allows the quota times the elapsed share of the window, so `2.1% over pace` means 2.1 % more is used than that, `7.5% reserve` means 7.5 % less. Red is more than 3 % over pace, yellow within 3 % either way, green more than 3 % in reserve. It works from the first minute of a window.
 
 On narrow clients (a phone SSH session with the keyboard up) the popup switches to a compact layout that fits about 30 columns:
 
 ```
  CLAUDE
  Session  90% ███████░ 0h13m
- ▸ 96% of session gone · 86% under pace
+ ▸ 4.2% reserve
  Weekly   64% █████░░░ 3d9h
- ▸ 52% of week gone · 16% under pace
+ ▸ 4.2% reserve
  Fable    51% ████░░░░ 3d9h
- ▸ 52% of week gone · 3% over pace
+ ▸ 4.2% reserve
 ```
 
 ## How it works
@@ -45,12 +45,12 @@ Claude is read from the same OAuth endpoints Claude Code uses (token from the `C
 
 If you switch Claude Code between accounts with `/login`, the popup keeps every account it has seen. Each refresh copies the logged-in account's OAuth credentials into a keychain item of its own (`tmux-agentic-usage-claude`, one per account), so an account you switched away from is still read: its access token while it is valid, then a new one from its refresh token. The account Claude Code is logged into is never refreshed by the plugin, so its tokens are never rotated under Claude Code. Usage of an account counts everything on it, the claude.ai web app included.
 
-An account is picked up the first time Claude Code is logged into it while tmux runs. To add one without switching Claude Code at all, run `bash scripts/add-account.sh [email]`: it logs in once in a throwaway `CLAUDE_CONFIG_DIR` (the browser opens, pick the account), copies that login into the plugin's store, deletes the throwaway login and refreshes the cache. Sessions running in your Claude Code stay on their account. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with a pace line in days: the summed use per mean elapsed day against the pooled budget, so accounts that reset at different hours still add up:
+An account is picked up the first time Claude Code is logged into it while tmux runs. To add one without switching Claude Code at all, run `bash scripts/add-account.sh [email]`: it logs in once in a throwaway `CLAUDE_CONFIG_DIR` (the browser opens, pick the account), copies that login into the plugin's store, deletes the throwaway login and refreshes the cache. Sessions running in your Claude Code stay on their account. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with the same pace line: the summed use against the pooled quota times the mean elapsed share of the week, so accounts that reset at different hours still add up:
 
 ```
  CLAUDE POOL 2 accounts
   Weekly   147% left  ██████████████░░░░░░  of 200%
-  ▸ day 0.6 of 7 · 32%/day, budget 28.6%/day · runs out Mon 30.11. 02:43
+  ▸ 2.1% over pace
 
  CLAUDE Claude Max 20x you@work.io ●
   ...

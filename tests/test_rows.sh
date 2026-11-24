@@ -34,30 +34,32 @@ expect 'single: header' "$(grep '^H' <<<"$OUT")" "$(printf 'H\tclaude\tClaude Ma
 OUT=$(rows "[$B,$A]")
 expect 'two: header order' "$(grep '^H' <<<"$OUT" | cut -f2,3,4,5 | tr '\t' ' ' | paste -sd'|' -)" \
   'claude pool 2 accounts  |claude Claude Max 20x a@x.io active|claude Claude Max 20x b@x.io '
-# Weekly pool, in days: mean elapsed (0.79 + 1.08) / 2 = 0.94 day of 7.
-# 20 of 200 used -> 21.3 %/day against a budget of 200/7 = 28.6 %/day, lasts.
-D() { grep -A1 "$(printf '^Q\t%s' "$1")" <<<"$OUT" | tail -1 | cut -f1-6; }
+# Pace to the second. P = used minus expected-by-now, in percent (+ over, - reserve).
+# Weekly pool: mean elapsed (19 h + 26 h) / 2 = 22.5 h of 168 h = 13.4 %;
+# expected 200 x 22.5/168 = 26.79 %, used 20 % -> 6.8 % reserve, worth
+# 6.786 / 200 x 604800 s = 20520 s ahead; lasts (20 / 0.1339 = 149 % < 200 %).
+P() { grep -A1 "$(printf '^%s\t%s' "$1" "$2")" <<<"$OUT" | tail -1; }
 expect 'pool weekly row' "$(grep $'^Q\tWeekly' <<<"$OUT")" "$(printf 'Q\tWeekly\t20\t2')"
-expect 'pool weekly pace' "$(D Weekly)" "$(printf 'D\t0.9\t21.3\t28.6\ttrue\t7')"
-# Fable pool: 24 of 200 -> 25.6 %/day, lasts.
-expect 'pool fable pace' "$(D Fable)" "$(printf 'D\t0.9\t25.6\t28.6\ttrue\t7')"
-# One account's week: 14 % in 0.79 day -> 17.7 %/day against 100/7 = 14.3 %/day.
-expect 'account weekly pace' "$(grep -A1 $'^W\tWeekly\t14' <<<"$OUT" | tail -1 | cut -f1-6)" \
-  "$(printf 'D\t0.8\t17.7\t14.3\tfalse\t7')"
-# No "too early" gate: an account 11 % into the week still gets a projection,
-# and the run-out moment is an epoch after now.
-expect 'eta is a time' "$(grep -A1 $'^W\tWeekly\t14' <<<"$OUT" | tail -1 | awk -F'\t' '{print ($7 > '"$NOW"')}')" '1'
+expect 'pool weekly pace' "$(P Q Weekly)" "$(printf 'P\t-6.8')"
+# Fable pool: 24 % used -> 2.8 % reserve, 2.7857 x 3024 s = 8424 s.
+expect 'pool fable pace' "$(P Q Fable)" "$(printf 'P\t-2.8')"
+# One account's week: 19/168 = 11.3 % elapsed, 14 % used -> 2.7 % over pace,
+# 2.6905 x 6048 s = 16272 s to wait; runs out (14 / 0.1131 = 124 % > 100 %).
+expect 'account weekly pace' "$(grep -A1 $'^W\tWeekly\t14' <<<"$OUT" | tail -1)" \
+  "$(printf 'P\t2.7')"
 # Inactive account with an untouched session: no Session row for it.
 expect 'session rows' "$(grep -c $'^W\tSession' <<<"$OUT")" '1'
 
-# Over pace: 190 of 200 used -> runs out.
+# Over pace: 190 of 200 used -> 163.2 % over, 163.214 x 3024 s = 493560 s.
 A2=$(acct a a@x.io true 95 2026-11-30T17:00:00Z 10 0)
 B2=$(acct b b@x.io false 95 2026-11-30T10:00:00Z 10 0)
 OUT=$(rows "[$A2,$B2]")
-expect 'pool over pace' "$(D Weekly)" "$(printf 'D\t0.9\t202.7\t28.6\tfalse\t7')"
-# Session (5 h) keeps the percent pace line, also without a gate.
+expect 'pool over pace' "$(P Q Weekly)" "$(printf 'P\t163.2')"
+# Session (5 h) the same way: 3 h of 5 h gone = 60 %, 10 % used -> 50 % reserve,
+# 50 x 180 s = 9000 s ahead.
 OUT=$(rows "[$A]")
-expect 'session pace' "$(grep -A1 $'^W\tSession' <<<"$OUT" | tail -1)" "$(printf 'P\t-50\t60\ttrue\t')"
+expect 'session pace' "$(P W Session)" "$(printf 'P\t-50')"
+# Codex weekly from codexbar gets the same line (its own pace block is ignored).
 
 # A stale account says so in its header; an account that needs a login too.
 S=$("$JQ" -c '.stale=true | .fetchedAt=1795514400' <<<"$B")
