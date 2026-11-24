@@ -14,9 +14,9 @@ JQ="$(command -v jq || echo /opt/homebrew/bin/jq)"
 if [ "${1:-}" = "open" ]; then
   cw=$(tmux display -p '#{client_width}')
   ch=$(tmux display -p '#{client_height}')
-  pw=84; ph=24
+  pw=84; ph=40
   [ "$cw" -le 86 ] 2>/dev/null && pw='100%'
-  [ "$ch" -le 26 ] 2>/dev/null && ph='100%'
+  [ "$ch" -le 42 ] 2>/dev/null && ph='100%'
   exec tmux display-popup -E -w "$pw" -h "$ph" -T ' Agentic usage ' "bash $0"
 fi
 
@@ -80,7 +80,8 @@ pace_color() { # $1 = deltaPercent, $2 = willLastToReset
 # Pace line in plain words. The window is a tank that refills at reset, so the
 # only comparison that matters is "how much of the window is gone" against
 # "how much of the quota is gone". Under 10% elapsed any projection is noise.
-#   $1 = window name (session/week)  $2 = used%  $3 = delta%  $4 = elapsed%
+#   $1 = window name (session/week)  $2 = used label ("18%", "10% of pool")
+#   $3 = delta%  $4 = elapsed%
 #   $5 = willLastToReset             $6 = etaSeconds or ""
 pace_line() {
   local win=$1 used=$2 delta=$3 elapsed=$4 lasts=$5 eta=$6 pace end
@@ -102,7 +103,7 @@ pace_line() {
   elif [ -n "$eta" ]; then end="runs out in $(fmt_secs "$eta")"
   else end="runs out before reset"
   fi
-  echo "${elapsed}% of $win elapsed · ${used}% used · $pace · $end"
+  echo "${elapsed}% of $win elapsed · ${used} used · $pace · $end"
 }
 
 render() {
@@ -115,63 +116,40 @@ render() {
     return
   fi
 
-  "$JQ" -r '
-    # Percent of the window already elapsed, from resetsAt + windowMinutes.
-    def elapsed($u):
-      if $u == null or ($u.resetsAt // "") == "" then null else
-        (($u.windowMinutes // 300) * 60) as $win |
-        ($u.resetsAt | try fromdateiso8601 catch null) as $reset |
-        if $reset == null then null else
-          (((1 - (($reset - now) / $win)) * 100)
-            | if . < 0 then 0 elif . > 100 then 100 else . end) | round
-        end
-      end;
-    # One P row per window: delta%, elapsed%, willLastToReset, etaSeconds.
-    # codexbar omits the pace block for a barely-used window (e.g. right
-    # after a session reset); then everything is derived from elapsed vs used.
-    def pacerow($p; $u):
-      ($u.usedPercent // 0) as $used |
-      ((if $p != null then $p.expectedUsedPercent else null end) // elapsed($u)) as $exp |
-      if $exp == null then empty else
-        (if $p != null then ($p.deltaPercent // ($used - $exp)) else ($used - $exp) end) as $delta |
-        (if $p != null then ($p.willLastToReset // true)
-         elif $exp <= 0 then ($used == 0) else $used <= $exp end) as $lasts |
-        (if $p != null then ($p.etaSeconds // "") else "" end) as $eta |
-        ["P", $delta, $exp, ($lasts | tostring), $eta] | @tsv
-      end;
-    sort_by(.provider) | .[] |
-    if .error != null then
-      ["E", (.provider // "?"), (.error.message // "error")] | @tsv
-    else
-      (["H", .provider,
-        (.usage.identity.loginMethod // .usage.loginMethod // ""),
-        (.usage.identity.accountEmail // .usage.accountEmail // "")] | @tsv),
-      (if .usage.primary != null then
-        (["W", "Session", (.usage.primary.usedPercent // 0), (.usage.primary.resetsAt // "")] | @tsv),
-        pacerow(.pace.primary; .usage.primary)
-       else empty end),
-      (if .usage.secondary != null then
-        (["W", "Weekly", (.usage.secondary.usedPercent // 0), (.usage.secondary.resetsAt // "")] | @tsv),
-        pacerow(.pace.secondary; .usage.secondary)
-       else empty end),
-      (.usage.extraRateWindows[]? |
-        (["W", .title, (.window.usedPercent // 0), (.window.resetsAt // "")] | @tsv),
-        pacerow(null; .window)),
-      (if .usage.codexResetCredits != null then
-        ["C", .usage.codexResetCredits.availableCount] | @tsv else empty end)
-    end
-  ' "$CACHE" | while IFS=$'\t' read -r kind a b c d; do
+  "$JQ" -r --argjson now "$(date +%s)" -f "$SCRIPT_DIR/rows.jq" "$CACHE" | while IFS=$'\t' read -r kind a b c d; do
     case "$kind" in
       H)
+        # a = provider, b = plan, c = email, d = active | stale:<min> | login:<min>
         name=$(printf '%s' "$a" | tr '[:lower:]' '[:upper:]')
         extra=""
         [ -n "$b" ] && extra=" ${DIM}${b}${RST}"
-        if (( ! MOBILE )) && [ -n "$c" ]; then extra="$extra ${DIM}${c}${RST}"; fi
+        if [ -n "$c" ]; then
+          if (( MOBILE )); then extra=" ${DIM}${c%@*}${RST}"; else extra="$extra ${DIM}${c}${RST}"; fi
+        fi
+        case "$d" in
+          active) extra="$extra ${GREEN}●${RST}" ;;
+          stale:*) extra="$extra ${YELLOW}stale $(fmt_secs $(( ${d#stale:} * 60 )))${RST}" ;;
+          login:*) extra="$extra ${RED}/login to this account to refresh${RST}" ;;
+        esac
         printf '\n %s%s%s%s\n' "$BOLD" "$name" "$RST" "$extra"
+        ;;
+      Q)
+        # a = title, b = used % summed over the accounts, c = number of accounts
+        title=${a/ only/}
+        win_name=week
+        win_used="$(( (b + c / 2) / c ))% of pool"
+        left=$(( c * 100 - b ))
+        if (( MOBILE )); then
+          printf ' %-7s %s%3d%%%s %s %s/%d%%%s\n' \
+            "$title" "$BOLD" "$left" "$RST" "$(draw_bar $(( left / c )))" "$DIM" $(( c * 100 )) "$RST"
+        else
+          printf '  %-8s %s%3d%%%s left  %s  %sof %d%%%s\n' \
+            "$title" "$BOLD" "$left" "$RST" "$(draw_bar $(( left / c )))" "$DIM" $(( c * 100 )) "$RST"
+        fi
         ;;
       W)
         title=${a/ only/}
-        win_used=$b
+        win_used="$b%"
         case "$title" in Session) win_name=session ;; *) win_name=week ;; esac
         left=$(( 100 - b ))
         if (( MOBILE )); then

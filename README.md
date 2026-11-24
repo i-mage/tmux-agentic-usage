@@ -41,6 +41,27 @@ On narrow clients (a phone SSH session with the keyboard up) the popup switches 
 
 Claude is read from the same OAuth endpoints Claude Code uses (token from the `Claude Code-credentials` keychain item), so the popup shows the account Claude Code is logged into, not whichever account the browser is signed in to on claude.ai. If that token or endpoint is unavailable, CodexBar's Claude data is used instead.
 
+### Several Claude subscriptions
+
+If you switch Claude Code between accounts with `/login`, the popup keeps every account it has seen. Each refresh copies the logged-in account's OAuth credentials into a keychain item of its own (`tmux-agentic-usage-claude`, one per account), so an account you switched away from is still read: its access token while it is valid, then a new one from its refresh token. The account Claude Code is logged into is never refreshed by the plugin, so its tokens are never rotated under Claude Code. Usage of an account counts everything on it, the claude.ai web app included.
+
+An account is picked up the first time Claude Code is logged into it while tmux runs. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with a pace line that compares the mean share used with the mean share of the week elapsed, so accounts that reset at different hours still add up:
+
+```
+ CLAUDE POOL 2 accounts
+  Weekly   147% left  ██████████████░░░░░░  of 200%
+  ▸ 12% of week elapsed · 27% of pool used · 15% over pace · runs out before reset
+
+ CLAUDE Claude Max 20x you@work.io ●
+  ...
+ CLAUDE Claude Max 20x you@home.io
+  ...
+```
+
+`●` marks the account Claude Code is logged into. A session row is shown for another account only while that session is in use. `stale 25m` means the last fetch failed and the numbers are that old; `/login to this account to refresh` means its stored refresh token no longer works. To forget an account, delete its uuid from `~/.cache/tmux-agentic-usage/claude-accounts`, its `claude-<uuid>.json` there, and `security delete-generic-password -s tmux-agentic-usage-claude -a <uuid>`.
+
+### Cache
+
 Fetching usage takes 20 to 25 seconds (the CodexBar CLI talks to provider APIs), so the popup never fetches in the foreground. A small daemon, started with the tmux server, refreshes a JSON cache every 5 minutes and dies with the server. The popup renders from the cache instantly and shows the cache age in the footer. `r` forces a refresh, and opening the popup on a stale cache kicks a background refresh automatically.
 
 When a provider omits pace data (right after a session reset, for example), the plugin derives it from elapsed window time versus used percent, so the pace line is always there.

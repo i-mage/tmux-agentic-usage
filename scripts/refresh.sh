@@ -57,25 +57,20 @@ merge_claude_scoped() {
     "$TMP" >"$TMP.m" 2>/dev/null && mv "$TMP.m" "$TMP" || rm -f "$TMP.m"
 }
 
-# Claude straight from the OAuth endpoints Claude Code uses, so the popup always
-# shows the account Claude Code is logged into. CodexBar's Claude "web" source reads
-# claude.ai browser cookies, which can be another account (4. 11. 2026: popup showed
-# the browser account at 1 % while Claude Code's account stood at 46 %). Returns 1
-# when the token or an endpoint is unavailable; then CodexBar's entry stays.
+# Claude straight from the OAuth endpoints Claude Code uses, one entry per Claude
+# account seen so far (scripts/claude_accounts.sh), so the popup shows the account
+# Claude Code is logged into plus every subscription you switched away from with
+# /login. CodexBar's Claude "web" source reads claude.ai browser cookies, which can
+# be another account (4. 11. 2026: popup showed the browser account at 1 % while
+# Claude Code's account stood at 46 %). Returns 1 when no account could be read;
+# then CodexBar's entry stays.
+# shellcheck source=claude_accounts.sh
+source "$(dirname "$0")/claude_accounts.sh"
 replace_claude_with_oauth() {
   "$JQ" -e 'any(.[]; .provider=="claude")' "$TMP" >/dev/null 2>&1 || return 1
-  local token usage profile entry
-  token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
-    | "$JQ" -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-  [ -n "$token" ] || return 1
-  usage=$(curl -sf -m 10 https://api.anthropic.com/api/oauth/usage \
-    -H "Authorization: Bearer $token" -H "anthropic-beta: oauth-2025-04-20") || return 1
-  profile=$(curl -sf -m 10 https://api.anthropic.com/api/oauth/profile \
-    -H "Authorization: Bearer $token" -H "anthropic-beta: oauth-2025-04-20") || profile='{}'
-  entry=$("$JQ" -nc --argjson u "$usage" --argjson p "$profile" \
-    '{usage: $u, profile: $p}' | "$JQ" -c -f "$(dirname "$0")/claude_oauth.jq" 2>/dev/null) || return 1
-  "$JQ" -e '.usage.secondary != null' <<<"$entry" >/dev/null 2>&1 || return 1
-  "$JQ" --argjson e "$entry" 'map(if .provider=="claude" then $e else . end)' \
+  local entries
+  entries=$(claude_entries) || return 1
+  "$JQ" --argjson es "$entries" '[.[] | if .provider=="claude" then $es[] else . end]' \
     "$TMP" >"$TMP.m" 2>/dev/null && mv "$TMP.m" "$TMP" || { rm -f "$TMP.m"; return 1; }
 }
 
