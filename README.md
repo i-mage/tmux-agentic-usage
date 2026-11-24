@@ -45,7 +45,7 @@ Claude is read from the same OAuth endpoints Claude Code uses (token from the `C
 
 If you switch Claude Code between accounts with `/login`, the popup keeps every account it has seen. Each refresh copies the logged-in account's OAuth credentials into a keychain item of its own (`tmux-agentic-usage-claude`, one per account), so an account you switched away from is still read: its access token while it is valid, then a new one from its refresh token. The account Claude Code is logged into is never refreshed by the plugin, so its tokens are never rotated under Claude Code. Usage of an account counts everything on it, the claude.ai web app included.
 
-An account is picked up the first time Claude Code is logged into it while tmux runs. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with a pace line that compares the mean share used with the mean share of the week elapsed, so accounts that reset at different hours still add up:
+An account is picked up the first time Claude Code is logged into it while tmux runs. To add one without switching Claude Code at all, run `bash scripts/add-account.sh [email]`: it logs in once in a throwaway `CLAUDE_CONFIG_DIR` (the browser opens, pick the account), copies that login into the plugin's store, deletes the throwaway login and refreshes the cache. Sessions running in your Claude Code stay on their account. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with a pace line that compares the mean share used with the mean share of the week elapsed, so accounts that reset at different hours still add up:
 
 ```
  CLAUDE POOL 2 accounts
