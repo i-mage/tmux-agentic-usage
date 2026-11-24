@@ -109,12 +109,15 @@ render() {
         if [ -n "$c" ]; then
           if (( MOBILE )); then extra=" ${DIM}${c%@*}${RST}"; else extra="$extra ${DIM}${c}${RST}"; fi
         fi
-        case "$d" in
-          active) extra="$extra ${GREEN}●${RST}" ;;
-          stale:*) extra="$extra ${YELLOW}stale $(fmt_secs $(( ${d#stale:} * 60 )))${RST}" ;;
-          login:*) extra="$extra ${RED}/login to this account to refresh${RST}" ;;
-        esac
+        [ "$d" = active ] && extra="$extra ${GREEN}●${RST}"
         printf '\n %s%s%s%s\n' "$BOLD" "$name" "$RST" "$extra"
+        # e = why the last update of this account failed; its numbers are that old.
+        case "$d" in
+          stale:*|login:*)
+            if [ "${d%%:*}" = login ]; then color=$RED; else color=$YELLOW; fi
+            printf ' %s ⚠ not updated for %s: %s%s\n' "$color" \
+              "$(fmt_secs $(( ${d#*:} * 60 )))" "${e:-update failed}" "$RST" ;;
+        esac
         ;;
       Q)
         # a = title, b = used % summed over the accounts, c = number of accounts
@@ -158,6 +161,12 @@ render() {
   local mtime now age
   mtime=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
   now=$(date +%s); age=$(( (now - mtime) / 60 ))
+  local st
+  st=$(cat "$CACHE_DIR/refresh.status" 2>/dev/null)
+  if [ "${st%% *}" = fail ]; then
+    printf '\n %s⚠ last refresh failed at %s: %s%s' "$RED" \
+      "$(date -r "$(cut -d' ' -f2 <<<"$st")" '+%H:%M' 2>/dev/null)" "$(cut -d' ' -f3- <<<"$st")" "$RST"
+  fi
   if (( MOBILE )); then
     printf '\n %supd %dm · r=refresh q=quit%s\n' "$DIM" "$age" "$RST"
   else

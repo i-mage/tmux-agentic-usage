@@ -28,7 +28,7 @@ B=$(acct b b@x.io false 6 2026-11-30T10:00:00Z 4 0)
 # One account: no pool, exactly the old block.
 OUT=$(rows "[$A]")
 expect 'single: no pool row' "$(grep -c '^Q' <<<"$OUT" || true)" '0'
-expect 'single: header' "$(grep '^H' <<<"$OUT")" "$(printf 'H\tclaude\tClaude Max 20x\ta@x.io\tactive')"
+expect 'single: header' "$(grep '^H' <<<"$OUT")" "$(printf 'H\tclaude\tClaude Max 20x\ta@x.io\tactive\t')"
 
 # Two accounts: pool first, then the active account, then the other one.
 OUT=$(rows "[$B,$A]")
@@ -62,10 +62,10 @@ expect 'session pace' "$(P W Session)" "$(printf 'P\t-50')"
 # Codex weekly from codexbar gets the same line (its own pace block is ignored).
 
 # A stale account says so in its header; an account that needs a login too.
-S=$("$JQ" -c '.stale=true | .fetchedAt=1795514400' <<<"$B")
-L=$("$JQ" -c '.stale=true | .fetchedAt=1795514400 | .needsLogin=true' <<<"$B")
-expect 'stale header' "$(rows "[$A,$S]" | grep 'b@x.io' | cut -f5)" 'stale:120'
-expect 'login header' "$(rows "[$A,$L]" | grep 'b@x.io' | cut -f5)" 'login:120'
+S=$("$JQ" -c '.stale=true | .fetchedAt=1795514400 | .staleReason="token server busy, retrying"' <<<"$B")
+L=$("$JQ" -c '.stale=true | .fetchedAt=1795514400 | .needsLogin=true | .staleReason="login expired"' <<<"$B")
+expect 'stale header' "$(rows "[$A,$S]" | grep 'b@x.io' | cut -f5,6)" "$(printf 'stale:120\ttoken server busy, retrying')"
+expect 'login header' "$(rows "[$A,$L]" | grep 'b@x.io' | cut -f5,6)" "$(printf 'login:120\tlogin expired')"
 
 # Codex and errors still render.
 OUT=$(rows '[{"provider":"codex","error":null,"usage":{"identity":{"loginMethod":"plus"},

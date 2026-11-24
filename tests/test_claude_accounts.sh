@@ -66,17 +66,23 @@ ACTIVE=$(blob B tokB-expired refB $((NOW_MS - 1000)))
 OUT=$(claude_entries)
 expect 'active not refreshed' "$(grep -c refB "$T/refreshed" || true)" '0'
 # B could not be fetched now, so its last good entry is shown as stale.
-expect 'B stale' "$("$JQ" -r '.[] | select(.accountUuid=="B") | .stale' <<<"$OUT")" 'true'
+expect 'B stale' "$("$JQ" -r '.[] | select(.accountUuid=="B") | "\(.stale) \(.staleReason)"' <<<"$OUT")" 'true usage API refused the request'
 
 # 5. A refresh token that no longer works: last good entry, flagged for a login.
 blob A x dead $((NOW_MS - 1000)) >"$T/kc/A"
 OUT=$(claude_entries)
-expect 'A needs login' "$("$JQ" -r '.[] | select(.accountUuid=="A") | "\(.stale) \(.needsLogin)"' <<<"$OUT")" 'true true'
+expect 'A needs login' "$("$JQ" -r '.[] | select(.accountUuid=="A") | "\(.stale) \(.needsLogin) \(.staleReason)"' <<<"$OUT")" 'true true login expired, run scripts/add-account.sh'
 
 # 5b. Rate limited (429) or server error: a passing problem, stale but no /login.
 blob A x busy $((NOW_MS - 1000)) >"$T/kc/A"
 OUT=$(claude_entries)
-expect 'A busy: stale, no login' "$("$JQ" -r '.[] | select(.accountUuid=="A") | "\(.stale) \(.needsLogin // false)"' <<<"$OUT")" 'true false'
+expect 'A busy: stale, no login' "$("$JQ" -r '.[] | select(.accountUuid=="A") | "\(.stale) \(.needsLogin // false) \(.staleReason)"' <<<"$OUT")" 'true false token server busy, retrying'
+
+# 5c. An account that never had a good fetch is not dropped: an error entry.
+echo C >>"$CACHE_DIR/claude-accounts"
+OUT=$(claude_entries)
+expect 'C never fetched: error entry' "$("$JQ" -r '.[] | select(.accountUuid=="C") | .error.message' <<<"$OUT")" \
+  'account C: no stored login, run scripts/add-account.sh'
 
 # 6. Nothing usable at all: non-zero exit so refresh.sh falls back to CodexBar.
 rm -f "$T"/kc/* "$CACHE_DIR"/claude-*

@@ -70,43 +70,56 @@ _refresh_token() {
   esac
 }
 
-# Last good entry of an account, marked stale. $2 = "login" when the stored
-# credentials no longer work and only a /login into that account can fix it,
-# $3 = "active" for the account Claude Code is logged into.
+# An account that could not be updated. Its last good entry comes back marked
+# stale with the reason, so the popup says what went wrong and since when; an
+# account that was never fetched comes back as an error entry, never silently.
+#   $1 uuid  $2 "active" or ""  $3 reason for the popup
+#   $4 "login" when only a new login of that account fixes it
 _au_stale() {
-  local f="$CACHE_DIR/claude-$1.json"
-  [ -s "$f" ] || return 1
-  "$JQ" -c --argjson login "$([ "${2:-}" = login ] && echo true || echo false)" \
-    --argjson a "$([ "${3:-}" = active ] && echo true || echo false)" \
-    '.stale = true | .active = $a | if $login then .needsLogin = true else . end' "$f"
+  local f="$CACHE_DIR/claude-$1.json" a login
+  a=$([ "${2:-}" = active ] && echo true || echo false)
+  login=$([ "${4:-}" = login ] && echo true || echo false)
+  if [ -s "$f" ]; then
+    "$JQ" -c --argjson a "$a" --argjson login "$login" --arg r "$3" \
+      '.stale = true | .active = $a | .staleReason = $r
+       | if $login then .needsLogin = true else . end' "$f"
+  else
+    "$JQ" -nc --arg u "$1" --argjson a "$a" --arg r "$3" \
+      '{provider: "claude", accountUuid: $u, active: $a,
+        error: {message: ("account \($u[0:8]): \($r)")}}'
+  fi
 }
+
+AU_RELOGIN="login expired, run scripts/add-account.sh"
 
 # One account -> one cache entry on stdout. $1 = uuid, $2 = credentials JSON or
 # empty, $3 = "active" for the account Claude Code is logged into.
 _au_entry() {
-  local uuid=$1 blob=$2 active=${3:-} token exp now resp usage profile entry
-  [ -n "$blob" ] || { _au_stale "$uuid" "" "$active"; return; }
+  local uuid=$1 blob=$2 active=${3:-} token exp now resp usage profile entry rc=0
+  [ -n "$blob" ] || { _au_stale "$uuid" "$active" "no stored login, run scripts/add-account.sh" login; return; }
   token=$("$JQ" -r '.accessToken // empty' <<<"$blob")
   exp=$("$JQ" -r '.expiresAt // 0' <<<"$blob")
   now=$(au_now_ms)
   if [ "$active" != active ] && (( exp - 300000 < now )); then
-    local rc=0
     resp=$(_refresh_token "$("$JQ" -r '.refreshToken // empty' <<<"$blob")" \
       "$("$JQ" -r '(.scopes // []) | join(" ")' <<<"$blob")") || rc=$?
-    (( rc == 75 )) && { _au_stale "$uuid"; return; }
+    (( rc == 75 )) && { _au_stale "$uuid" "" "token server busy, retrying"; return; }
     token=$("$JQ" -r '.access_token // empty' <<<"$resp" 2>/dev/null)
-    (( rc == 0 )) && [ -n "$token" ] || { _au_stale "$uuid" login; return; }
+    (( rc == 0 )) && [ -n "$token" ] || { _au_stale "$uuid" "" "$AU_RELOGIN" login; return; }
     blob=$("$JQ" -c --argjson r "$resp" --argjson now "$now" \
       '.accessToken = $r.access_token
        | .refreshToken = ($r.refresh_token // .refreshToken)
        | .expiresAt = ($now + (($r.expires_in // 3600) * 1000))' <<<"$blob")
     printf '%s' "$blob" | _kc_put "$uuid"
   fi
-  usage=$(_api "$token" usage) || { _au_stale "$uuid" "" "$active"; return; }
+  usage=$(_api "$token" usage) || rc=$?
+  if (( rc == 22 )); then _au_stale "$uuid" "$active" "usage API refused the request"; return
+  elif (( rc != 0 )); then _au_stale "$uuid" "$active" "no connection to the usage API"; return; fi
   profile=$(_api "$token" profile) || profile='{}'
   entry=$("$JQ" -nc --argjson u "$usage" --argjson p "$profile" '{usage: $u, profile: $p}' \
-    | "$JQ" -c -f "$AU_DIR/claude_oauth.jq" 2>/dev/null) || { _au_stale "$uuid" "" "$active"; return; }
-  "$JQ" -e '.usage.secondary != null' <<<"$entry" >/dev/null 2>&1 || { _au_stale "$uuid" "" "$active"; return; }
+    | "$JQ" -c -f "$AU_DIR/claude_oauth.jq" 2>/dev/null)
+  "$JQ" -e '.usage.secondary != null' <<<"$entry" >/dev/null 2>&1 \
+    || { _au_stale "$uuid" "$active" "unexpected answer from the usage API"; return; }
   entry=$("$JQ" -c --arg u "$uuid" --argjson a "$([ "$active" = active ] && echo true || echo false)" \
     --argjson t "$(( now / 1000 ))" '. + {accountUuid: $u, active: $a, fetchedAt: $t}' <<<"$entry")
   printf '%s\n' "$entry" >"$CACHE_DIR/claude-$uuid.json.tmp" \

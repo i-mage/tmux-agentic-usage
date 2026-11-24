@@ -58,7 +58,7 @@ An account is picked up the first time Claude Code is logged into it while tmux 
   ...
 ```
 
-`●` marks the account Claude Code is logged into. A session row is shown for another account only while that session is in use. `stale 25m` means the last fetch failed and the numbers are that old; `/login to this account to refresh` means its stored refresh token no longer works. To forget an account, delete its uuid from `~/.cache/tmux-agentic-usage/claude-accounts`, its `claude-<uuid>.json` there, and `security delete-generic-password -s tmux-agentic-usage-claude -a <uuid>`.
+`●` marks the account Claude Code is logged into. A session row is shown for another account only while that session is in use. An account whose last update failed gets a line under its name, `⚠ not updated for 45m: <why>` (yellow while it retries, red when only a new login fixes it, then run `scripts/add-account.sh`); an account that was never read at all shows as an error row, never disappears. When a whole refresh fails, the footer says `⚠ last refresh failed at 11:38: <why>`. To forget an account, delete its uuid from `~/.cache/tmux-agentic-usage/claude-accounts`, its `claude-<uuid>.json` there, and `security delete-generic-password -s tmux-agentic-usage-claude -a <uuid>`.
 
 ### Cache
 

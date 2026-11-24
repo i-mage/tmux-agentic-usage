@@ -78,8 +78,12 @@ if "$CODEXBAR" usage --provider "$provider" --format json >"$TMP" 2>>"$LOG" \
    && "$JQ" -e 'type=="array" and length>0' "$TMP" >/dev/null 2>&1; then
   replace_claude_with_oauth || merge_claude_scoped
   mv "$TMP" "$CACHE"
+  echo "ok $(date +%s)" >"$CACHE_DIR/refresh.status"
 else
   rm -f "$TMP"
   echo "$(date '+%F %T') refresh failed" >>"$LOG"
+  # The popup shows this under the numbers, so an old cache never looks current.
+  why=$(grep -v '^[0-9-]* [0-9:]* refresh failed' "$LOG" 2>/dev/null | tail -1 | cut -c1-60)
+  echo "fail $(date +%s) codexbar ${why:-gave no data}" >"$CACHE_DIR/refresh.status"
   exit 1
 fi

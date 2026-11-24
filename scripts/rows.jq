@@ -2,7 +2,8 @@
 # Run with --argjson now <epoch seconds>, so the rows are testable. An empty field
 # goes last in its row: popup.sh reads with IFS=tab, which merges empty fields.
 #
-#   H  provider  plan  email  state       state: active | stale:<min> | login:<min> | ""
+#   H  provider  plan  email  state  why  state: active | stale:<min> | login:<min> | ""
+#                                          why: what failed in the last update, or ""
 #   W  title     used%  resetsAt          one rate window
 #   Q  title     sumUsed%  accounts       a window summed over every Claude account
 #   P  diff%                         pace of the row above: used minus what an even
@@ -42,7 +43,7 @@ def entry_rows:
     (["H", .provider,
       (.usage.identity.loginMethod // .usage.loginMethod // ""),
       (.usage.identity.accountEmail // .usage.accountEmail // ""),
-      state] | @tsv),
+      state, (.staleReason // "")] | @tsv),
     # A Claude account you are not logged into shows its session only while in use.
     (if .usage.primary != null
         and (.active != false or (.usage.primary.usedPercent // 0) > 0) then
