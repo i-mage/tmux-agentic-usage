@@ -23,7 +23,7 @@ Press a key, get an instant modal with your Claude and Codex (and any other [Cod
  updated 2m ago · r refresh · q quit
 ```
 
-The pace lines are the point. Each window is a tank that refills at the reset, so the line compares how much of the window is gone with how much of the quota is gone: `84% of week elapsed · 1% used` means the week is almost over and you barely touched it, so you are `83% under pace`. Green means the window lasts until reset, yellow means you are over pace but still fine, red means you are projected to run out before the reset. Under 10% of a window elapsed the line says `too early to project` instead of extrapolating a few minutes into a false alarm.
+The pace lines are the point. A week is a daily budget: one Claude subscription gives 100% per 7 days, so 14.3% a day; two give 28.6% a day. The line says which day of the window you are on, what you actually spent per elapsed day and what you may spend, and when that pace runs the quota out: `day 0.6 of 7 · 32%/day, budget 28.6%/day · runs out Mon 30.11. 02:43`. Green means under budget, yellow over budget but still lasting until the reset, red means it runs out first. It projects from the first hour of the window. Windows shorter than a day (the 5-hour session) keep the percent form: `53% of session elapsed · 68% used · 15% over pace · runs out in 2h 23m`.
 
 On narrow clients (a phone SSH session with the keyboard up) the popup switches to a compact layout that fits about 30 columns:
 
@@ -45,12 +45,12 @@ Claude is read from the same OAuth endpoints Claude Code uses (token from the `C
 
 If you switch Claude Code between accounts with `/login`, the popup keeps every account it has seen. Each refresh copies the logged-in account's OAuth credentials into a keychain item of its own (`tmux-agentic-usage-claude`, one per account), so an account you switched away from is still read: its access token while it is valid, then a new one from its refresh token. The account Claude Code is logged into is never refreshed by the plugin, so its tokens are never rotated under Claude Code. Usage of an account counts everything on it, the claude.ai web app included.
 
-An account is picked up the first time Claude Code is logged into it while tmux runs. To add one without switching Claude Code at all, run `bash scripts/add-account.sh [email]`: it logs in once in a throwaway `CLAUDE_CONFIG_DIR` (the browser opens, pick the account), copies that login into the plugin's store, deletes the throwaway login and refreshes the cache. Sessions running in your Claude Code stay on their account. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with a pace line that compares the mean share used with the mean share of the week elapsed, so accounts that reset at different hours still add up:
+An account is picked up the first time Claude Code is logged into it while tmux runs. To add one without switching Claude Code at all, run `bash scripts/add-account.sh [email]`: it logs in once in a throwaway `CLAUDE_CONFIG_DIR` (the browser opens, pick the account), copies that login into the plugin's store, deletes the throwaway login and refreshes the cache. Sessions running in your Claude Code stay on their account. With two or more accounts a pool block comes first: each window summed over the accounts (two subscriptions = 200% a week), with a pace line in days: the summed use per mean elapsed day against the pooled budget, so accounts that reset at different hours still add up:
 
 ```
  CLAUDE POOL 2 accounts
   Weekly   147% left  ██████████████░░░░░░  of 200%
-  ▸ 12% of week elapsed · 27% of pool used · 15% over pace · runs out before reset
+  ▸ day 0.6 of 7 · 32%/day, budget 28.6%/day · runs out Mon 30.11. 02:43
 
  CLAUDE Claude Max 20x you@work.io ●
   ...

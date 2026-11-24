@@ -83,17 +83,13 @@ pace_color() { # $1 = deltaPercent, $2 = willLastToReset
 
 # Pace line in plain words. The window is a tank that refills at reset, so the
 # only comparison that matters is "how much of the window is gone" against
-# "how much of the quota is gone". Under 10% elapsed any projection is noise.
+# "how much of the quota is gone". Used for windows under a day (session).
 #   $1 = window name (session/week)  $2 = used label ("18%", "10% of pool")
 #   $3 = delta%  $4 = elapsed%
 #   $5 = willLastToReset             $6 = etaSeconds or ""
 pace_line() {
   local win=$1 used=$2 delta=$3 elapsed=$4 lasts=$5 eta=$6 pace end
-  if (( elapsed < 10 )); then
-    if (( MOBILE )); then echo "${elapsed}% of $win gone · too early"
-    else echo "${elapsed}% of $win elapsed · too early to project"; fi
-    return
-  fi
+  if (( elapsed == 0 )); then echo "$win just reset"; return; fi
   if (( delta < 0 )); then pace="$(( -delta ))% under pace"
   elif (( delta == 0 )); then pace="on pace"
   else pace="${delta}% over pace"
@@ -110,6 +106,30 @@ pace_line() {
   echo "${elapsed}% of $win elapsed · ${used} used · $pace · $end"
 }
 
+# Pace of a window of a day or more, as a daily budget: capacity / days in the
+# window (one Claude week 14.3 %/day, two accounts 28.6 %/day), against what was
+# actually spent per elapsed day. Projected from the first hour.
+#   $1 = day  $2 = %/day spent  $3 = %/day budget  $4 = lasts  $5 = days in window
+#   $6 = run-out epoch or ""
+daily_line() {
+  local day=$1 burn=$2 budget=$3 lasts=$4 wd=$5 out=$6 end
+  if [ "$day" = "0" ]; then echo "week just reset · budget ${budget}%/day"; return; fi
+  if [ "$lasts" != "false" ]; then end="lasts until reset"
+  elif (( MOBILE )); then end="out $(date -r "$out" '+%a %H:%M' 2>/dev/null || date -d "@$out" '+%a %H:%M')"
+  else end="runs out $(date -r "$out" '+%a %-d.%-m. %H:%M' 2>/dev/null || date -d "@$out" '+%a %-d.%-m. %H:%M')"
+  fi
+  if (( MOBILE )); then echo "d${day}/${wd} · ${burn} of ${budget}%/d · $end"
+  else echo "day ${day} of ${wd} · ${burn}%/day, budget ${budget}%/day · $end"; fi
+}
+
+# Green under budget, yellow over budget but lasting, red when it runs out first.
+daily_color() { # $1 = %/day spent, $2 = budget, $3 = lasts
+  if [ "$3" = "false" ]; then printf '%s' "$RED"
+  elif awk -v b="$1" -v g="$2" 'BEGIN { exit !(b <= g) }'; then printf '%s' "$GREEN"
+  else printf '%s' "$YELLOW"
+  fi
+}
+
 render() {
   clear
   MOBILE=0
@@ -120,7 +140,7 @@ render() {
     return
   fi
 
-  "$JQ" -r --argjson now "$(date +%s)" -f "$SCRIPT_DIR/rows.jq" "$CACHE" | while IFS=$'\t' read -r kind a b c d; do
+  "$JQ" -r --argjson now "$(date +%s)" -f "$SCRIPT_DIR/rows.jq" "$CACHE" | while IFS=$'\t' read -r kind a b c d e f; do
     case "$kind" in
       H)
         # a = provider, b = plan, c = email, d = active | stale:<min> | login:<min>
@@ -164,9 +184,15 @@ render() {
             "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$DIM" "$(rel_until "$c")" "$RST"
         fi
         ;;
+      D)
+        if [ "$a" = "0" ]; then color=$DIM; else color=$(daily_color "$b" "$c" "$d"); fi
+        line=$(daily_line "$a" "$b" "$c" "$d" "$e" "$f")
+        if (( MOBILE )); then printf ' %s▸ %s%s\n' "$color" "$line" "$RST"
+        else printf '  %s▸ %s%s\n' "$color" "$line" "$RST"; fi
+        ;;
       P)
         # a = delta%, b = elapsed%, c = willLastToReset, d = etaSeconds
-        if (( b < 10 )); then color=$DIM; else color=$(pace_color "$a" "$c"); fi
+        if (( b == 0 )); then color=$DIM; else color=$(pace_color "$a" "$c"); fi
         line=$(pace_line "$win_name" "$win_used" "$a" "$b" "$c" "$d")
         if (( MOBILE )); then printf ' %s▸ %s%s\n' "$color" "$line" "$RST"
         else printf '  %s▸ %s%s\n' "$color" "$line" "$RST"; fi
