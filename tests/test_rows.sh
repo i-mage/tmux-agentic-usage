@@ -67,11 +67,38 @@ L=$("$JQ" -c '.stale=true | .fetchedAt=1795514400 | .needsLogin=true | .staleRea
 expect 'stale header' "$(rows "[$A,$S]" | grep 'b@x.io' | cut -f5,6)" "$(printf 'stale:120\ttoken server busy, retrying')"
 expect 'login header' "$(rows "[$A,$L]" | grep 'b@x.io' | cut -f5,6)" "$(printf 'login:120\tlogin expired')"
 
+# A Claude account's Weekly and Fable reset together: said once (R) under its
+# header, empty on the W rows; a stamp a second apart is the same reset.
+OUT=$(rows "[$A]")
+expect 'shared reset row' "$(grep '^R' <<<"$OUT")" "$(printf 'R\t2026-11-30T17:00:00Z')"
+expect 'weekly without reset' "$(grep $'^W\tWeekly' <<<"$OUT" | cut -f4)" ''
+expect 'session keeps reset' "$(grep $'^W\tSession' <<<"$OUT" | cut -f4)" '2026-11-24T14:00:00Z'
+A3=$("$JQ" -c '.usage.extraRateWindows[0].window.resetsAt="2026-11-30T17:00:01Z"' <<<"$A")
+expect 'reset a second apart' "$(rows "[$A3]" | grep -c '^R')" '1'
+A4=$("$JQ" -c '.usage.extraRateWindows[0].window.resetsAt="2026-12-01T17:00:00Z"' <<<"$A")
+expect 'different resets stay per row' "$(rows "[$A4]" | grep -c '^R')" '0'
+
+# Away Sat 28.11. 11:00Z to Sun 29.11. 13:00Z (26 h) is not working time: A's week
+# has 168 - 26 = 142 working hours, 19 h gone = 13.38 %, 14 % used -> 0.6 % over
+# pace (2.7 % without the away). By the away start (114 working hours, 80.28 %)
+# 66.3 % more can go; the A row names the period.
+AWAY='[[1795863600,1795957200]]'
+rows_away() { "$JQ" -r --argjson now "$NOW" --argjson away "$AWAY" -f scripts/rows.jq <<<"$1"; }
+OUT=$(rows_away "[$A]")
+expect 'away row' "$(grep '^A' <<<"$OUT")" "$(printf 'A\t1795863600\t1795957200')"
+expect 'away weekly pace' "$(grep -A1 $'^W\tWeekly' <<<"$OUT" | tail -1)" "$(printf 'P\t0.6\t66.3\t1795863600')"
+# Pool: both accounts' allowance by the away start summed, minus the summed use.
+OUT=$(rows_away "[$A,$B]")
+expect 'away pool pace' "$(P Q Weekly | cut -f1,3,4)" "$(printf 'P\t145.5\t1795863600')"
+# The session ends before the away starts: no spend-by part.
+expect 'away session' "$(grep -A1 $'^W\tSession' <<<"$OUT" | tail -1 | cut -f3)" ''
+
 # Codex and errors still render.
 OUT=$(rows '[{"provider":"codex","error":null,"usage":{"identity":{"loginMethod":"plus"},
   "secondary":{"usedPercent":18,"windowMinutes":10080,"resetsAt":"2026-11-30T09:42:33Z"},
   "codexResetCredits":{"availableCount":3}}},{"provider":"gemini","error":{"message":"boom"}}]')
 expect 'codex weekly' "$(grep -c $'^W\tWeekly\t18' <<<"$OUT")" '1'
+expect 'codex keeps its reset' "$(grep $'^W\tWeekly' <<<"$OUT" | cut -f4)" '2026-11-30T09:42:33Z'
 expect 'codex credits' "$(grep '^C' <<<"$OUT")" "$(printf 'C\t3')"
 expect 'error row' "$(grep '^E' <<<"$OUT")" "$(printf 'E\tgemini\tboom')"
 

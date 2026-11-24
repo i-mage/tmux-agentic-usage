@@ -6,6 +6,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_DIR="$HOME/.cache/tmux-agentic-usage"
 CACHE="$CACHE_DIR/usage.json"
+AWAY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmux-agentic-usage/away"
 REFRESH="$SCRIPT_DIR/refresh.sh"
 JQ="$(command -v jq || echo /opt/homebrew/bin/jq)"
 
@@ -16,10 +17,12 @@ if [ "${1:-}" = "open" ]; then
   ch=$(tmux display -p '#{client_height}')
   # Height follows the content (accounts come and go): body lines, the line the
   # cursor waits on, and the two border rows.
-  rows=$(bash "$0" count 2>/dev/null)
+  # Width follows the content too: the widest line plus the borders and a margin.
+  read -r rows cols <<<"$(bash "$0" count 2>/dev/null)"
   [[ "$rows" =~ ^[0-9]+$ ]] || rows=22
-  pw=84; ph=$(( rows + 3 ))
-  [ "$cw" -le 86 ] 2>/dev/null && pw='100%'
+  [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
+  pw=$(( cols + 4 )); ph=$(( rows + 3 ))
+  [ "$cw" -le $(( pw + 2 )) ] 2>/dev/null && pw='100%'
   [ "$ch" -le $(( ph + 2 )) ] 2>/dev/null && ph='100%'
   exec tmux display-popup -E -w "$pw" -h "$ph" -T ' Agentic usage ' "bash $0"
 fi
@@ -60,6 +63,30 @@ rel_until() {
   echo "in $(fmt_secs "$diff") ($at)"
 }
 
+# Away periods from $AWAY_FILE, one per line: "YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM"
+# (local time, start and end). Printed as a JSON array of [startEpoch, endEpoch].
+local_epoch() { # "YYYY-MM-DD HH:MM" local -> epoch
+  date -jf "%Y-%m-%d %H:%M" "$1" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null
+}
+away_json() {
+  local out="" a b c d s e
+  if [ -f "$AWAY_FILE" ]; then
+    while read -r a b c d _; do
+      [[ "$a" =~ ^[0-9]{4}- ]] || continue
+      s=$(local_epoch "$a $b") || continue
+      e=$(local_epoch "$c $d") || continue
+      (( e > s )) && out+="${out:+,}[$s,$e]"
+    done <"$AWAY_FILE"
+  fi
+  printf '[%s]' "$out"
+}
+
+at_local() { # epoch -> "Sat 12:00" (more than a week away: "Sat 5.12. 12:00")
+  local fmt="%a %H:%M"
+  (( $1 - $(date +%s) >= 6 * 86400 )) && fmt="%a %-d.%-m. %H:%M"
+  date -r "$1" "+$fmt" 2>/dev/null || date -d "@$1" "+$fmt" 2>/dev/null
+}
+
 draw_bar() { # $1 = percent left -> colored bar
   local left=$1 width filled i out="" color
   if (( MOBILE )); then width=8; else width=20; fi
@@ -75,18 +102,23 @@ draw_bar() { # $1 = percent left -> colored bar
 }
 
 # Pace line: only how far the use is from an even pace by now. Red more than 3 %
-# over pace, yellow within 3 % either way, green more than 3 % in reserve.
-#   $1 = diff% (+ over pace, - reserve)
+# over pace, yellow within 3 % either way, green more than 3 % in reserve. With an
+# away period ahead, also how much more can go before it starts.
+#   $1 = diff% (+ over pace, - reserve), $2 = spendable %, $3 = away start epoch
 pace_line() {
-  local d=$1 abs=${1#-} color text
+  local d=$1 abs=${1#-} color text spend=""
   if awk -v d="$d" 'BEGIN { exit !(d > 3) }'; then color=$RED
   elif awk -v d="$d" 'BEGIN { exit !(d < -3) }'; then color=$GREEN
   else color=$YELLOW; fi
   if [ "$d" = "0" ]; then text="on pace"
   elif [ "${d#-}" != "$d" ]; then text="${abs}% reserve"
   else text="${d}% over pace"; fi
-  if (( MOBILE )); then printf ' %s▸ %s%s\n' "$color" "$text" "$RST"
-  else printf '  %s▸ %s%s\n' "$color" "$text" "$RST"; fi
+  if [ -n "${3:-}" ]; then
+    if (( MOBILE )); then spend=" ${DIM}· ${2}% to $(at_local "$3")${RST}"
+    else spend=" ${DIM}· ${2}% to spend by $(at_local "$3")${RST}"; fi
+  fi
+  if (( MOBILE )); then printf ' %s▸ %s%s%s\n' "$color" "$text" "$RST" "$spend"
+  else printf '  %s▸ %s%s%s\n' "$color" "$text" "$RST" "$spend"; fi
 }
 
 render() {
@@ -99,8 +131,18 @@ render() {
     return
   fi
 
-  "$JQ" -r --argjson now "$(date +%s)" -f "$SCRIPT_DIR/rows.jq" "$CACHE" | while IFS=$'\t' read -r kind a b c d e f; do
+  "$JQ" -r --argjson now "$(date +%s)" --argjson away "$(away_json)" \
+    -f "$SCRIPT_DIR/rows.jq" "$CACHE" | while IFS=$'\t' read -r kind a b c d e f; do
     case "$kind" in
+      A)
+        # a, b = away start and end: the pace below plans around it.
+        printf '\n %saway %s → %s%s\n' "$CYAN" "$(at_local "$a")" "$(at_local "$b")" "$RST"
+        ;;
+      R)
+        # a = the reset this account's week windows share, said once.
+        if (( MOBILE )); then printf ' %sresets %s%s\n' "$DIM" "$(rel_until "$a")" "$RST"
+        else printf '  %sresets %s%s\n' "$DIM" "$(rel_until "$a")" "$RST"; fi
+        ;;
       H)
         # a = provider, b = plan, c = email, d = active | stale:<min> | login:<min>
         name=$(printf '%s' "$a" | tr '[:lower:]' '[:upper:]')
@@ -132,18 +174,22 @@ render() {
         fi
         ;;
       W)
+        # c = reset, empty when the account's header line already said it
         title=${a/ only/}
         left=$(( 100 - b ))
+        reset=""
+        if [ -n "$c" ]; then
+          if (( MOBILE )); then reset=" ${DIM}$(rel_until "$c")${RST}"
+          else reset="  ${DIM}resets $(rel_until "$c")${RST}"; fi
+        fi
         if (( MOBILE )); then
-          printf ' %-7s %s%3d%%%s %s %s%s%s\n' \
-            "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$DIM" "$(rel_until "$c")" "$RST"
+          printf ' %-7s %s%3d%%%s %s%s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$reset"
         else
-          printf '  %-8s %s%3d%%%s left  %s  %sresets %s%s\n' \
-            "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$DIM" "$(rel_until "$c")" "$RST"
+          printf '  %-8s %s%3d%%%s left  %s%s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$reset"
         fi
         ;;
       P)
-        pace_line "$a"
+        pace_line "$a" "$b" "$c"
         ;;
       C)
         if (( MOBILE )); then
@@ -174,9 +220,17 @@ render() {
   fi
 }
 
-# "count" mode: how many lines the popup body needs, for sizing it in "open".
+# "count" mode: lines and widest line (in characters) of the popup body, for
+# sizing it in "open". Columns are taken as wide (the popup is not open yet).
 if [ "${1:-}" = "count" ]; then
-  render 2>/dev/null | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | wc -l | tr -d ' '
+  tput() { [ "$1" = cols ] && echo 200 || command tput "$@"; }
+  clear() { :; }
+  export LC_ALL=en_US.UTF-8
+  render 2>/dev/null | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | {
+    n=0; w=0
+    while IFS= read -r line; do n=$(( n + 1 )); (( ${#line} > w )) && w=${#line}; done
+    echo "$n $w"
+  }
   exit 0
 fi
 
