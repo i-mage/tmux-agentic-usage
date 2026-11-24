@@ -174,18 +174,18 @@ render() {
         fi
         ;;
       W)
-        # c = reset, empty when the account's header line already said it
+        # c = reset, empty when the account's header line already said it.
+        # Wide: the reset goes on its own line under the bar, so the popup stays
+        # narrow (24. 11. 2026, owner); compact keeps it short on the bar line.
         title=${a/ only/}
         left=$(( 100 - b ))
-        reset=""
-        if [ -n "$c" ]; then
-          if (( MOBILE )); then reset=" ${DIM}$(rel_until "$c")${RST}"
-          else reset="  ${DIM}resets $(rel_until "$c")${RST}"; fi
-        fi
         if (( MOBILE )); then
+          reset=""
+          [ -n "$c" ] && reset=" ${DIM}$(rel_until "$c")${RST}"
           printf ' %-7s %s%3d%%%s %s%s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$reset"
         else
-          printf '  %-8s %s%3d%%%s left  %s%s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")" "$reset"
+          printf '  %-8s %s%3d%%%s left  %s\n' "$title" "$BOLD" "$left" "$RST" "$(draw_bar "$left")"
+          [ -n "$c" ] && printf '  %sresets %s%s\n' "$DIM" "$(rel_until "$c")" "$RST"
         fi
         ;;
       P)
