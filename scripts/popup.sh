@@ -5,7 +5,7 @@
 # whatever width the popup has (24. 11. 2026, owner).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CACHE_DIR="$HOME/.cache/tmux-agentic-usage"
+CACHE_DIR="${AGENTIC_USAGE_CACHE_DIR:-$HOME/.cache/tmux-agentic-usage}"
 CACHE="$CACHE_DIR/usage.json"
 AWAY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmux-agentic-usage/away"
 REFRESH="$SCRIPT_DIR/refresh.sh"
@@ -112,9 +112,9 @@ pace_line() {
 }
 
 render() {
-  clear
+  [ -z "${PRINT:-}" ] && clear
   local cols rows_out
-  cols=$(tput cols)
+  cols=${COLS:-$(tput cols)}
   MOBILE=0
   (( cols < 50 )) && MOBILE=1
 
@@ -218,13 +218,14 @@ render() {
   fi
 }
 
+# "print" mode: render once to stdout at $2 columns, no screen clearing (tests).
 # "count" mode: lines and widest line (in characters) of the popup body, for
-# sizing it in "open". Columns are taken as wide (the popup is not open yet).
-if [ "${1:-}" = "count" ]; then
-  tput() { [ "$1" = cols ] && echo 200 || command tput "$@"; }
-  COUNT_BARW=20
-  clear() { :; }
+# sizing it in "open"; bars measured at 20 (the popup is not open yet).
+if [ "${1:-}" = "print" ] || [ "${1:-}" = "count" ]; then
   export LC_ALL=en_US.UTF-8
+  PRINT=1
+  if [ "$1" = print ]; then COLS=${2:-80}; render; exit 0; fi
+  COLS=200 COUNT_BARW=20
   render 2>/dev/null | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | {
     n=0; w=0
     while IFS= read -r line; do n=$(( n + 1 )); (( ${#line} > w )) && w=${#line}; done
