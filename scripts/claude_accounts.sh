@@ -25,12 +25,19 @@ AU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 au_now_ms() { echo $(( $(date +%s) * 1000 )); }
 
 _kc_active() { security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null; }
-_kc_get() { security find-generic-password -s "$AU_KC_SERVICE" -a "$1" -w 2>/dev/null; }
-# stdin = credentials JSON. Sent hex-encoded through `security -i` so the token
+# `security -w` prints the data as hex when it holds a non-printable byte (a
+# trailing newline is enough), so hex output is decoded back.
+_kc_get() {
+  local out
+  out=$(security find-generic-password -s "$AU_KC_SERVICE" -a "$1" -w 2>/dev/null) || return 1
+  if [[ "$out" =~ ^([0-9a-f][0-9a-f])+$ ]]; then printf '%s' "$out" | xxd -r -p | tr -d '\n'
+  else printf '%s' "$out"; fi
+}
+# stdin = credentials JSON (newlines dropped, JSON does not need them). Sent hex-encoded through `security -i` so the token
 # never appears in a process list.
 _kc_put() {
   local hex
-  hex=$(xxd -p | tr -d '\n')
+  hex=$(tr -d '\n' | xxd -p | tr -d '\n')
   [ -n "$hex" ] || return 1
   printf 'add-generic-password -U -s %s -a %s -X %s\n' "$AU_KC_SERVICE" "$1" "$hex" \
     | security -i >/dev/null 2>&1
@@ -38,10 +45,29 @@ _kc_put() {
 _api() { # $1 access token, $2 usage|profile
   curl -sf -m 10 "$AU_API/$2" -H "Authorization: Bearer $1" -H "anthropic-beta: oauth-2025-04-20"
 }
-_refresh_token() { # $1 refresh token, $2 space-separated scopes -> token response JSON
-  "$JQ" -nc --arg r "$1" --arg c "$AU_CLIENT_ID" --arg s "$2" \
-    '{grant_type: "refresh_token", refresh_token: $r, client_id: $c, scope: $s}' \
-    | curl -sf -m 15 -X POST "$AU_TOKEN_URL" -H "Content-Type: application/json" --data-binary @-
+# Without Claude Code's User-Agent the token endpoint answers 429 (24. 11. 2026).
+au_cli_version() { # installed Claude Code version, from its versions/<x.y.z> symlink
+  local bin
+  bin=$(command -v claude 2>/dev/null)
+  [[ "$bin" == /* ]] || bin="$HOME/.local/bin/claude"
+  basename "$(readlink "$bin" 2>/dev/null)" 2>/dev/null
+}
+AU_UA="claude-cli/$(au_cli_version) (external, cli)"
+# $1 refresh token, $2 space-separated scopes -> token response JSON on stdout.
+# Exit 75 = passing problem (429, 5xx, no answer): keep the account, try later.
+# Exit 1 = the refresh token was refused: only a new login fixes that.
+_refresh_token() {
+  local out code
+  out=$("$JQ" -nc --arg r "$1" --arg c "$AU_CLIENT_ID" --arg s "$2" \
+      '{grant_type: "refresh_token", refresh_token: $r, client_id: $c, scope: $s}' \
+    | curl -s -m 15 -X POST "$AU_TOKEN_URL" -H "Content-Type: application/json" \
+        -H "User-Agent: $AU_UA" --data-binary @- -w '\n%{http_code}')
+  code=${out##*$'\n'}
+  case "$code" in
+    200) printf '%s\n' "${out%$'\n'*}" ;;
+    429|5??|000|"") return 75 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Last good entry of an account, marked stale. $2 = "login" when the stored
@@ -64,10 +90,12 @@ _au_entry() {
   exp=$("$JQ" -r '.expiresAt // 0' <<<"$blob")
   now=$(au_now_ms)
   if [ "$active" != active ] && (( exp - 300000 < now )); then
+    local rc=0
     resp=$(_refresh_token "$("$JQ" -r '.refreshToken // empty' <<<"$blob")" \
-      "$("$JQ" -r '(.scopes // []) | join(" ")' <<<"$blob")") \
-      && token=$("$JQ" -r '.access_token // empty' <<<"$resp" 2>/dev/null) && [ -n "$token" ] \
-      || { _au_stale "$uuid" login; return; }
+      "$("$JQ" -r '(.scopes // []) | join(" ")' <<<"$blob")") || rc=$?
+    (( rc == 75 )) && { _au_stale "$uuid"; return; }
+    token=$("$JQ" -r '.access_token // empty' <<<"$resp" 2>/dev/null)
+    (( rc == 0 )) && [ -n "$token" ] || { _au_stale "$uuid" login; return; }
     blob=$("$JQ" -c --argjson r "$resp" --argjson now "$now" \
       '.accessToken = $r.access_token
        | .refreshToken = ($r.refresh_token // .refreshToken)

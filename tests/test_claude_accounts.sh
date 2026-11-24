@@ -21,7 +21,7 @@ ACTIVE=""
 _kc_active() { [ -n "$ACTIVE" ] && printf '{"claudeAiOauth":%s}' "$ACTIVE"; }
 _kc_get() { cat "$T/kc/$1" 2>/dev/null; }
 _kc_put() { cat >"$T/kc/$1"; }
-_refresh_token() { echo "$1" >>"$T/refreshed"; [ "$1" = "dead" ] && return 1
+_refresh_token() { echo "$1" >>"$T/refreshed"; [ "$1" = "dead" ] && return 1; [ "$1" = "busy" ] && return 75
   printf '{"access_token":"new-%s","refresh_token":"r2-%s","expires_in":28800}' "$1" "$1"; }
 _api() { # $1 token, $2 endpoint
   case "$1" in tokA|new-*) ;; *) echo "$1 $2" >>"$T/denied"; return 22 ;; esac
@@ -73,11 +73,34 @@ blob A x dead $((NOW_MS - 1000)) >"$T/kc/A"
 OUT=$(claude_entries)
 expect 'A needs login' "$("$JQ" -r '.[] | select(.accountUuid=="A") | "\(.stale) \(.needsLogin)"' <<<"$OUT")" 'true true'
 
+# 5b. Rate limited (429) or server error: a passing problem, stale but no /login.
+blob A x busy $((NOW_MS - 1000)) >"$T/kc/A"
+OUT=$(claude_entries)
+expect 'A busy: stale, no login' "$("$JQ" -r '.[] | select(.accountUuid=="A") | "\(.stale) \(.needsLogin // false)"' <<<"$OUT")" 'true false'
+
 # 6. Nothing usable at all: non-zero exit so refresh.sh falls back to CodexBar.
 rm -f "$T"/kc/* "$CACHE_DIR"/claude-*
 : >"$CACHE_DIR/claude-accounts"
 ACTIVE=""
 if claude_entries >/dev/null; then expect 'empty fails' 'rc=0' 'rc!=0'; fi
+
+# 7. Real keychain round trip (own throwaway service): a trailing newline in the
+#    stored JSON makes `security -w` print hex; put strips it, get decodes hex.
+if command -v security >/dev/null 2>&1; then
+  ( AU_KC_SERVICE="tmux-agentic-usage-test-$$"
+    source scripts/claude_accounts.sh
+    AU_KC_SERVICE="tmux-agentic-usage-test-$$"
+    printf '{"a":1}\n' | _kc_put probe
+    got=$(_kc_get probe)
+    printf '{"a":2}\n' | security add-generic-password -U -s "$AU_KC_SERVICE" -a raw \
+      -X "$(printf '{"a":2}\n' | xxd -p | tr -d '\n')" 2>/dev/null
+    raw=$(_kc_get raw | "$JQ" -c . 2>/dev/null)
+    security delete-generic-password -s "$AU_KC_SERVICE" -a probe >/dev/null 2>&1
+    security delete-generic-password -s "$AU_KC_SERVICE" -a raw >/dev/null 2>&1
+    [ "$got" = '{"a":1}' ] || { echo "FAIL keychain put strips newline: got '$got'"; exit 1; }
+    [ "$raw" = '{"a":2}' ] || { echo "FAIL keychain get decodes hex: got '$raw'"; exit 1; }
+  ) || fail=1
+fi
 
 [ $fail -eq 0 ] && echo "ok"
 exit $fail

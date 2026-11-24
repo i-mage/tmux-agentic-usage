@@ -14,9 +14,13 @@ JQ="$(command -v jq || echo /opt/homebrew/bin/jq)"
 if [ "${1:-}" = "open" ]; then
   cw=$(tmux display -p '#{client_width}')
   ch=$(tmux display -p '#{client_height}')
-  pw=84; ph=40
+  # Height follows the content (accounts come and go): body lines, the line the
+  # cursor waits on, and the two border rows.
+  rows=$(bash "$0" count 2>/dev/null)
+  [[ "$rows" =~ ^[0-9]+$ ]] || rows=22
+  pw=84; ph=$(( rows + 3 ))
   [ "$cw" -le 86 ] 2>/dev/null && pw='100%'
-  [ "$ch" -le 42 ] 2>/dev/null && ph='100%'
+  [ "$ch" -le $(( ph + 2 )) ] 2>/dev/null && ph='100%'
   exec tmux display-popup -E -w "$pw" -h "$ph" -T ' Agentic usage ' "bash $0"
 fi
 
@@ -189,6 +193,12 @@ render() {
     printf '\n %supdated %dm ago · r refresh · q quit%s\n' "$DIM" "$age" "$RST"
   fi
 }
+
+# "count" mode: how many lines the popup body needs, for sizing it in "open".
+if [ "${1:-}" = "count" ]; then
+  render 2>/dev/null | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | wc -l | tr -d ' '
+  exit 0
+fi
 
 # Kick a background refresh when the cache is older than the interval,
 # so an open popup on a cold cache heals itself without blocking.
